@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agents Back Office</title>
+<meta name="description" content="Transaction coordination for Oklahoma real-estate agents. Contract paperwork built on the current OREC forms, signed in order, filed with your brokerage the same day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f7f5f0; --fg:#1c2733; --muted:#5a6673; --rule:#ddd7cb; --panel:#ece7dc;
+  --accent:#8a5a2b; --accent-ink:#5e3c1a; --on-accent:#fff;
+  --display:"Fraunces",Georgia,serif; --body:"Public Sans","Helvetica Neue",Arial,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#141a21; --fg:#e8e4dc; --muted:#a2acb8; --rule:#2b343f; --panel:#1c2530; --accent:#d2965a; --accent-ink:#e8b27a; --on-accent:#141a21; color-scheme:dark}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:16px}
+.wrap{max-width:70ch;margin:0 auto}
+header.top{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:1.2rem 0;border-bottom:1px solid var(--rule)}
+.brand{font-family:var(--display);font-weight:600;font-size:1.25rem;letter-spacing:.01em;text-decoration:none;color:var(--fg)}
+nav a{color:var(--muted);text-decoration:none;margin-left:1.1rem;font-size:.95rem}
+nav a:hover,nav a:focus{color:var(--fg)}
+.hero{padding:3.2rem 0 2.4rem}
+.eyebrow{font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);font-weight:600;margin:0 0 .8rem}
+h1{font-family:var(--display);font-weight:500;font-size:clamp(2rem,5vw,3rem);line-height:1.12;margin:0 0 1rem;text-wrap:balance}
+.lede{font-size:1.15rem;color:var(--muted);margin:0 0 1.6rem;max-width:60ch}
+.cta{display:inline-block;background:var(--accent);color:var(--on-accent);text-decoration:none;font-weight:600;padding:.75rem 1.2rem;border-radius:4px}
+.cta.secondary{background:transparent;color:var(--accent-ink);border:1px solid var(--accent)}
+.cta+.cta{margin-left:.6rem}
+.cta:focus-visible,nav a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+section{padding:2.4rem 0;border-top:1px solid var(--rule)}
+h2{font-family:var(--display);font-weight:600;font-size:1.6rem;margin:0 0 1rem;text-wrap:balance}
+p{margin:.6rem 0}
+.steps{list-style:none;padding:0;margin:1rem 0 0;display:grid;gap:1rem}
+.steps li{display:grid;grid-template-columns:2.4rem 1fr;gap:.8rem;align-items:start}
+.steps .n{font-family:var(--display);font-size:1.4rem;color:var(--accent-ink);line-height:1.2}
+.steps b{display:block;font-weight:600;margin-bottom:.15rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:1rem;margin-top:1rem}
+.card{background:var(--panel);border-radius:6px;padding:1rem 1.1rem}
+.card b{display:block;margin-bottom:.3rem}
+details{border-top:1px solid var(--rule);padding:.7rem 0}
+details:last-of-type{border-bottom:1px solid var(--rule)}
+summary{cursor:pointer;font-weight:600}
+summary::marker{color:var(--accent)}
+footer{padding:2rem 0 3rem;color:var(--muted);font-size:.9rem;border-top:1px solid var(--rule)}
+footer a{color:var(--muted)}
+@media (max-width:480px){.cta+.cta{margin-left:0;margin-top:.6rem}.cta{display:block;text-align:center}}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="/">Agents Back Office</a>
+  <nav><a href="#how">How it works</a><a href="#what">What you get</a><a href="#faq">FAQ</a><a href="#contact">Contact</a></nav>
+</header>
+
+<main>
+<div class="hero">
+  <p class="eyebrow">Transaction coordination for Oklahoma agents</p>
+  <h1>The contract is ready to sign before you pull out of the driveway.</h1>
+  <p class="lede">You tell us the deal from your phone. We build the packet on the current OREC forms, route it for signature in the right order, and file the executed copies with your brokerage the same day. You stay with your clients. We keep the paper moving.</p>
+  <a class="cta" href="#contact">Send us a transaction</a><a class="cta secondary" href="#how">See how it works</a>
+</div>
+
+<section id="how">
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li><span class="n">1</span><div><b>Tell us the deal.</b> From your phone, pick the stage you are at. Only the fields that matter show up, in the form's own words, with the full document a tap away.</div></li>
+    <li><span class="n">2</span><div><b>We build the packet.</b> Your answers fill the OREC form set for that stage, on the edition in force the day you send it, including the disclosures that have to travel with it.</div></li>
+    <li><span class="n">3</span><div><b>You sign first.</b> The packet comes to you before anyone else. Read it, confirm it, pass it on. Nothing reaches a client that you have not seen.</div></li>
+    <li><span class="n">4</span><div><b>Your clients sign.</b> Electronic signature, routed in order, with reminders that come from us rather than from you.</div></li>
+    <li><span class="n">5</span><div><b>Filed the same day.</b> Executed documents go into your brokerage's document storage, which stays the record of the transaction.</div></li>
+    <li><span class="n">6</span><div><b>You get a daily digest.</b> Where every contract sits, what is due next, inspection and deadline reminders, and what the other side is waiting on.</div></li>
+  </ol>
+</section>
+
+<section id="what">
+  <h2>What you get</h2>
+  <div class="grid">
+    <div class="card"><b>Current forms, every time</b>OREC revises its forms each January. A packet is built on the edition in force when you send it, and the edition is stamped on the file.</div>
+    <div class="card"><b>Nothing goes out unseen</b>You are always the first signer. Your confirmation is the control on the whole process.</div>
+    <div class="card"><b>Your brokerage holds the record</b>We are the workflow, not the archive. Executed copies land with your broker the same day, and our working files are purged after execution.</div>
+    <div class="card"><b>Mid-transaction paper too</b>Counteroffers, amend and extend, condition removals and earnest-money releases hang off the same transaction, so nothing gets re-keyed.</div>
+    <div class="card"><b>Licensed people, not a form mill</b>The service is run by licensed Oklahoma real-estate professionals who have done this paperwork on their own deals.</div>
+    <div class="card"><b>Clients stay in the loop</b>Status comes from us at near-zero effort from you, so your clients hear about progress without chasing you for it.</div>
+  </div>
+</section>
+
+<section id="faq">
+  <h2>Questions agents ask</h2>
+  <details><summary>Which forms do you work with?</summary><p>The Oklahoma Real Estate Commission's published form set: residential sale and lease, the disclosures that travel with them, and the mid-transaction forms. Reference documents such as the RPCD Act and the lead-paint pamphlet are delivered to clients where required and are never part of a signing packet.</p></details>
+  <details><summary>Do I lose control of my transaction?</summary><p>No. Every packet comes to you first. You read it, confirm it, and pass it on. If something is wrong it stops with you, before a client ever sees it.</p></details>
+  <details><summary>Where do the documents live afterward?</summary><p>With your brokerage. Executed copies are uploaded to your brokerage's document storage the same day they are complete. That copy is the legal record. We keep working files only through execution and a short re-send buffer.</p></details>
+  <details><summary>Who is behind this?</summary><p>Two licensed Oklahoma real-estate professionals who built the service for their own transactions first.</p></details>
+</section>
+
+<section id="contact">
+  <h2>Send us a transaction</h2>
+  <p>We are onboarding agents now. Reach out and we will set you up, usually the same day.</p>
+  <p class="lede" style="font-size:1rem">Contact details are being finalized for this page. In the meantime, if you were referred here by one of us, use the number you already have.</p>
+</section>
+</main>
+
+<footer>
+  <p>Agents Back Office. Transaction coordination for Oklahoma real-estate agents.</p>
+  <p>This site describes a coordination service. It is not legal advice, and the forms it handles are the published forms of the Oklahoma Real Estate Commission.</p>
+</footer>
+</div>
+</body>
+</html>

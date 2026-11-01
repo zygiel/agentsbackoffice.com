@@ -106,7 +106,11 @@
     });
     const labels = { active: "Active", "6m": "6 months", "1y": "1 year", all: "All" };
     main.innerHTML = `
-      <div class="item"><h1>Clients</h1><div class="actions" style="margin:0"><button class="btn ghost small" id="add">Add a client</button><button class="btn small" id="export">Export CSV</button></div></div>
+      <div class="item"><h1>Clients</h1><div class="actions" style="margin:0"><button class="btn ghost small" id="add">Add a client</button><button class="btn ghost small" id="import">Import CSV</button><button class="btn small" id="export">Export CSV</button></div></div>
+      <div id="importbox" class="card hidden"><h3 style="margin-top:0">Import clients from a CSV</h3>
+        <p class="small muted">Download the blank template, fill one row per person, then choose the file. Columns: Name (required), Role (buyer, seller, tenant, landlord, other), Phone, Email, Notes. Rows whose name and email or phone already match one of your clients are skipped.</p>
+        <div class="actions"><button class="btn ghost small" type="button" id="template">Download the blank template</button><input type="file" id="csvfile" accept=".csv,text/csv" style="flex:1 1 14rem"><button class="btn small" type="button" id="doimport" disabled>Import</button></div>
+        <div id="importpreview" class="small muted"></div></div>
       <div class="tabs">${Object.entries(labels).map(([k, v]) => `<button data-f="${k}" class="${filter === k ? "on" : ""}">${v}</button>`).join("")}</div>
       <div id="addform" class="card hidden"><h3 style="margin-top:0">New client</h3><form id="f-add"><div class="row">
         <div><label>Name</label><input name="full_name" required></div><div><label>Role</label><select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
@@ -116,7 +120,7 @@
         <form id="f-export"><label>Six-digit code</label><input id="xcode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn" type="submit">Download ${rows.length} row${rows.length === 1 ? "" : "s"}</button><button class="btn ghost" type="button" id="xcancel">Cancel</button></div></form></div>
       ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Transactions</th></tr></thead><tbody>
         ${rows.map(c => `<tr><td>${esc(c.full_name)}</td><td>${esc(ROLES[c.role] || "")}</td><td>${esc(c.phone || "")}</td><td>${esc(c.email || "")}</td><td class="small">${(byClient[c.id] || []).filter(Boolean).map(t => `<a href="#t/${t.id}">${esc(t.property_label || "transaction")}</a>`).join(", ")}</td></tr>`).join("")}</tbody></table></div>`
-        : `<p class="muted">${filter === "active" ? "No clients in an open transaction." : "No clients in this range."} Clients are added from your packets and from the button above; nothing is imported.</p>`}`;
+        : `<p class="muted">${filter === "active" ? "No clients in open transactions." : "No clients in this range."} Clients are added from your entries and from the buttons above.</p>`}`;
     $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewClients(b.dataset.f)));
     $("#add").addEventListener("click", () => $("#addform").classList.toggle("hidden"));
     $("#f-add").addEventListener("submit", async (e) => {
@@ -125,6 +129,36 @@
       const { error } = await sb.from("clients").insert({ ...f, agent_id: uid });
       if (error) { msg(M, error.message, "err"); return; }
       msg(M, "Client saved.", "ok"); viewClients(filter);
+    });
+    // ---- CSV import: blank template, parse in the browser, insert under this agent ----
+    $("#import").addEventListener("click", () => $("#importbox").classList.toggle("hidden"));
+    $("#template").addEventListener("click", () => download("clients-template.csv", "Name,Role,Phone,Email,Notes\r\n"));
+    let parsed = [];
+    $("#csvfile").addEventListener("change", async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const table = parseCsv(await file.text());
+      if (!table.length) { $("#importpreview").textContent = "That file is empty."; return; }
+      const head = table[0].map(h => h.trim().toLowerCase());
+      const col = (n) => head.indexOf(n);
+      if (col("name") < 0) { $("#importpreview").textContent = "The first row must have a Name column (use the template)."; parsed = []; $("#doimport").disabled = true; return; }
+      const roles = Object.keys(ROLES);
+      const key = (n, em, ph) => (n + "|" + (em || "") + "|" + (ph || "")).toLowerCase();
+      const have = new Set(clients.map(c => key(c.full_name, c.email, c.phone)));
+      const cell = (r, n) => col(n) >= 0 ? (r[col(n)] || "").trim() || null : null;
+      parsed = table.slice(1).filter(r => r.some(v => v && v.trim())).map(r => ({
+        full_name: (r[col("name")] || "").trim(),
+        role: roles.includes((cell(r, "role") || "").toLowerCase()) ? cell(r, "role").toLowerCase() : null,
+        phone: cell(r, "phone"), email: cell(r, "email"), notes: cell(r, "notes"),
+      })).filter(x => x.full_name && !have.has(key(x.full_name, x.email, x.phone)));
+      $("#importpreview").textContent = parsed.length ? `${parsed.length} new client${parsed.length === 1 ? "" : "s"} ready to import (${table.length - 1} rows in the file).` : "Nothing new to import.";
+      $("#doimport").disabled = !parsed.length;
+    });
+    $("#doimport").addEventListener("click", async () => {
+      if (!parsed.length) return; $("#doimport").disabled = true;
+      const { error } = await sb.from("clients").insert(parsed.map(x => ({ ...x, agent_id: uid })));
+      if (error) { msg(M, error.message, "err"); $("#doimport").disabled = false; return; }
+      await audit("import_clients", { rows: parsed.length });
+      msg(M, `Imported ${parsed.length} client${parsed.length === 1 ? "" : "s"}.`, "ok"); viewClients("all");
     });
     $("#export").addEventListener("click", () => { $("#exportbox").classList.remove("hidden"); $("#xcode").focus(); });
     $("#xcancel").addEventListener("click", () => $("#exportbox").classList.add("hidden"));
@@ -141,6 +175,21 @@
     });
   }
 
+  // CSV parser: quotes, doubled quotes, commas and newlines inside quotes
+  function parseCsv(text) {
+    const rows = []; let row = [], cell = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === ",") { row.push(cell); cell = ""; }
+      else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += c;
+    }
+    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(r => r.length > 1 || (r[0] && r[0].trim()));
+  }
+
   // ---------------- profile ----------------
   async function viewProfile() {
     const [p] = await load("profiles", sb.from("profiles").select("*").eq("id", uid).limit(1));
@@ -149,7 +198,6 @@
     const recent = await load("audit_log", sb.from("audit_log").select("at, action, details").eq("actor", uid).order("at", { ascending: false }).limit(15));
     main.innerHTML = `
       <h1>Your profile</h1>
-      <p class="muted">These details fill in your packets. Every change is kept in a history we can read if an account is ever tampered with.</p>
       <form id="f-profile" class="card">
         <div class="row"><div><label>Your name</label><input name="full_name" value="${esc(p.full_name || "")}"></div><div><label>Your OREC license #</label><input name="license_no" value="${esc(p.license_no || "")}"></div></div>
         <div class="row"><div><label>Phone</label><input name="phone" type="tel" value="${esc(p.phone || "")}"></div><div><label>Email</label><input value="${esc(p.email)}" disabled></div></div>
@@ -158,10 +206,10 @@
         <div class="actions"><button class="btn" type="submit">Save</button></div>
       </form>
       <div class="grid">
-        <div class="card"><h3 style="margin-top:0">Password</h3><p class="small muted">Password changes go through an emailed link, so a stolen session cannot change it.</p><button class="btn ghost small" id="pwreset">Email me a reset link</button></div>
+        <div class="card"><h3 style="margin-top:0">Password</h3><p class="small muted">Password changes require the safety of an email link to better protect your clients.</p><button class="btn ghost small" id="pwreset">Email me a reset link</button></div>
         <div class="card"><h3 style="margin-top:0">Authenticator app</h3><p class="small muted">${totp.length ? `On since ${fmtDate(totp[0].created_at)}.` : "Not enrolled."}${p.mfa_required === false ? " An administrator has cleared the requirement for this account." : ""}</p>
           ${totp.length ? "" : '<a class="btn ghost small" href="/login/">Set it up</a>'}</div>
-        <div class="card"><h3 style="margin-top:0">Sessions</h3><p class="small muted">Signs this account out on every device, including this one.</p><button class="btn ghost small" id="signout-all">Sign out everywhere</button></div>
+        <div class="card"><h3 style="margin-top:0">Sessions</h3><p class="small muted">Sign your account out everywhere. That will include this session.</p><button class="btn ghost small" id="signout-all">Sign out everywhere</button></div>
       </div>
       <h2>Recent activity on your account</h2>
       ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Details</th></tr></thead><tbody>${recent.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(r.action.replace(/_/g, " "))}</td><td class="small muted">${esc(summarize(r.details))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Nothing yet.</p>'}`;
@@ -185,7 +233,7 @@
     const mine = await load("feedback", sb.from("feedback").select("*").order("created_at", { ascending: false }).limit(30));
     const name = (id) => { const t = tx.find(x => x.id === id); return t ? (t.property_label || t.property_address || "transaction") : ""; };
     main.innerHTML = `
-      <h1>Feedback</h1><p class="muted">Tell us what worked, what did not, or what you want the portal to do. It lands with us directly.</p>
+      <h1>Feedback</h1><p class="muted">Tell us what works, what does not, or what you wish it did. It lands with us directly.</p>
       <form id="f-fb" class="card"><label>About a transaction (optional)</label><select name="transaction_id"><option value="">General</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select>
         <label>Your note</label><textarea name="body" required></textarea><div class="actions"><button class="btn" type="submit">Send</button></div></form>
       ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted">${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;

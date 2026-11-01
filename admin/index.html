@@ -144,12 +144,31 @@
   }
 
   // ---------------- audit ----------------
+  let auditFilter = {};
   async function viewAudit() {
     await loadProfiles();
-    const rows = await load(sb.from("audit_log").select("*").order("at", { ascending: false }).limit(300));
+    const af = auditFilter;
+    let q = sb.from("audit_log").select("*").order("at", { ascending: false }).limit(500);
+    if (af.actor) q = q.eq("actor", af.actor);
+    if (af.action) q = q.ilike("action", "%" + af.action + "%");
+    if (af.target) q = q.or(`target_type.ilike.%${af.target}%,target_id.ilike.%${af.target}%`);
+    if (af.from) q = q.gte("at", new Date(af.from + "T00:00:00").toISOString());
+    if (af.to) q = q.lte("at", new Date(af.to + "T23:59:59").toISOString());
+    const rows = await load(q);
+    const f = auditFilter;
+    const shown = f.text ? rows.filter(r => JSON.stringify(r.details).toLowerCase().includes(f.text.toLowerCase())) : rows;
     main.innerHTML = `<h1>Audit log</h1><p class="muted small">Append-only. Sign-ins, exports, invites, resets, admin changes, and every change to clients, transactions and packet versions.</p>
+      <form id="f-audit" class="card flat"><div class="row">
+        <div><label>Who</label><select name="actor"><option value="">Anyone</option>${profiles.map(p => `<option value="${p.id}" ${f.actor === p.id ? "selected" : ""}>${esc(p.full_name || p.email)}</option>`).join("")}</select></div>
+        <div><label>Action contains</label><input name="action" value="${esc(f.action || "")}" placeholder="sign_in, export, update_clients"></div>
+        <div><label>Target contains</label><input name="target" value="${esc(f.target || "")}" placeholder="profile, transaction, an id"></div></div>
+        <div class="row"><div><label>From</label><input name="from" type="date" value="${esc(f.from || "")}"></div><div><label>To</label><input name="to" type="date" value="${esc(f.to || "")}"></div>
+        <div><label>Details contain</label><input name="text" value="${esc(f.text || "")}"></div></div>
+        <div class="actions"><button class="btn small" type="submit">Search</button><button class="btn ghost small" type="button" id="aclear">Clear</button><span class="small muted">${shown.length} row${shown.length === 1 ? "" : "s"}${rows.length >= 500 ? " (first 500; narrow the dates for more)" : ""}</span></div></form>
       <div class="tablewrap"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(who(r.actor))}</td><td>${esc(r.action)}</td><td class="small">${esc(r.target_type || "")} <span class="mono">${esc((r.target_id || "").slice(0, 8))}</span></td><td><details><summary class="small muted">${esc(JSON.stringify(r.details).slice(0, 80))}</summary><pre>${esc(JSON.stringify(r.details, null, 1))}</pre></details></td></tr>`).join("")}</tbody></table></div>`;
+      ${shown.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(who(r.actor))}</td><td>${esc(r.action)}</td><td class="small">${esc(r.target_type || "")} <span class="mono">${esc((r.target_id || "").slice(0, 8))}</span></td><td><details><summary class="small muted">${esc(JSON.stringify(r.details).slice(0, 80))}</summary><pre>${esc(JSON.stringify(r.details, null, 1))}</pre></details></td></tr>`).join("")}</tbody></table></div>`;
+    $("#f-audit").addEventListener("submit", (e) => { e.preventDefault(); auditFilter = Object.fromEntries(new FormData(e.target).entries()); viewAudit(); });
+    $("#aclear").addEventListener("click", () => { auditFilter = {}; viewAudit(); });
   }
 
   async function route() {

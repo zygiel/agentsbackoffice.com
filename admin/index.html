@@ -50,13 +50,22 @@
     let q = sb.from("packet_versions").select("id, version_no, forms, catalog_version, submitted_at, queue_state, queue_notes, agent_id, transaction_id, transactions(property_label, property_address, status)").order("submitted_at", { ascending: false }).limit(200);
     if (state === "open") q = q.neq("queue_state", "done");
     const rows = await load(q);
-    main.innerHTML = `<h1>Packet queue</h1>
+    const wipes = await load(sb.from("wipe_requests").select("*").is("cancelled_at", null).is("executed_at", null).order("requested_at"));
+    const openTx = await load(sb.from("transactions").select("agent_id").in("status", OPEN_STATUSES));
+    const openBy = {}; openTx.forEach(t => { openBy[t.agent_id] = (openBy[t.agent_id] || 0) + 1; });
+    main.innerHTML = `${wipes.length ? `<div class="card" style="border-color:var(--bad)"><h3 style="margin-top:0">Client-list wipes pending review</h3><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Requested</th><th>Status</th><th>Open transactions</th><th></th></tr></thead><tbody>
+      ${wipes.map(w => `<tr data-id="${w.id}"><td>${esc(who(w.agent_id))}</td><td>${fmtWhen(w.requested_at)}</td><td>${w.confirmed_at ? "Confirmed, erases " + fmtDate(w.scheduled_for) + (w.kept_open ? " (" + w.kept_open + " kept on open transactions)" : "") : "Awaiting the agent's email confirmation"}</td><td>${openBy[w.agent_id] || 0}</td><td><button class="btn ghost small wcancel">Cancel the wipe</button></td></tr>`).join("")}</tbody></table></div></div>` : ""}
+      <h1>Packet queue</h1>
       <div class="tabs"><button data-s="open" class="${state === "open" ? "on" : ""}">Open</button><button data-s="all" class="${state === "all" ? "on" : ""}">All</button></div>
       ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Received</th><th>Agent</th><th>Transaction</th><th>Version</th><th>Forms</th><th>State</th><th>Notes</th></tr></thead><tbody>
       ${rows.map(r => `<tr data-id="${r.id}"><td>${fmtWhen(r.submitted_at)}</td><td>${esc(who(r.agent_id))}</td><td>${esc(r.transactions ? (r.transactions.property_label || r.transactions.property_address || "") : "")}<div class="small muted">${esc(STATUS[r.transactions && r.transactions.status] || "")}</div></td><td>v${r.version_no}</td><td class="small">${esc((r.forms || []).join(", "))}</td>
         <td><select class="qs">${opt(QUEUE, r.queue_state)}</select></td><td><textarea class="qn" rows="1">${esc(r.queue_notes || "")}</textarea><button class="btn small qsave" style="margin-top:.3rem">Save</button></td></tr>`).join("")}</tbody></table></div>`
       : '<p class="muted">Nothing in the queue.</p>'}`;
     $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewQueue(b.dataset.s)));
+    $$(".wcancel", main).forEach(b => b.addEventListener("click", async () => {
+      try { await ABO.fn("wipe", { action: "cancel", id: b.closest("tr").dataset.id }); msg(M, "Wipe cancelled; the agent has been emailed.", "ok"); viewQueue(state); }
+      catch (err) { msg(M, err.message, "err"); }
+    }));
     $$(".qsave", main).forEach(b => b.addEventListener("click", async () => {
       const tr = b.closest("tr"); const { error } = await sb.from("packet_versions").update({ queue_state: $(".qs", tr).value, queue_notes: $(".qn", tr).value || null }).eq("id", tr.dataset.id);
       msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
@@ -136,7 +145,7 @@
   async function viewFeedback() {
     await loadProfiles();
     const rows = await load(sb.from("feedback").select("*, transactions(property_label)").order("created_at", { ascending: false }).limit(200));
-    main.innerHTML = `<h1>Feedback</h1>${rows.length ? `<ul class="list">${rows.map(f => `<li data-id="${f.id}"><div class="item"><span><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category || "General")}</span> <strong>${esc(who(f.agent_id))}</strong> <span class="small muted">${fmtWhen(f.created_at)} · ${esc(f.channel)}${f.transactions ? " · " + esc(f.transactions.property_label || "") : ""}</span></span>${f.handled_at ? `<span class="tag ok">Handled ${fmtDate(f.handled_at)}</span>` : '<button class="btn small fh">Mark handled</button>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : '<p class="muted">No feedback yet.</p>'}`;
+    main.innerHTML = `<h1>Feedback</h1>${rows.length ? `<ul class="list">${rows.map(f => `<li data-id="${f.id}"><div class="item"><span><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category || "General")}</span> <strong>${esc(who(f.agent_id))}</strong> <span class="small muted">${fmtWhen(f.created_at)} · ${esc(f.channel)}${f.transactions ? " · " + esc(f.transactions.property_label || "") : ""}</span></span>${f.wants_followup ? '<span class="tag warn">Follow-up requested</span> ' : ""}${f.handled_at ? `<span class="tag ok">Handled ${fmtDate(f.handled_at)}</span>` : '<button class="btn small fh">Mark handled</button>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : '<p class="muted">No feedback yet.</p>'}`;
     $$(".fh", main).forEach(b => b.addEventListener("click", async () => {
       const { error } = await sb.from("feedback").update({ handled_at: new Date().toISOString(), handled_by: st.session.user.id }).eq("id", b.closest("li").dataset.id);
       msg(M, error ? error.message : "Marked.", error ? "err" : "ok"); if (!error) viewFeedback();

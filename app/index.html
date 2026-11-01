@@ -106,8 +106,14 @@
       return true;
     });
     const labels = { active: "Active", "6m": "6 months", "1y": "1 year", all: "All" };
+    const [wipe] = await load("wipe_requests", sb.from("wipe_requests").select("*").is("cancelled_at", null).is("executed_at", null).order("requested_at", { ascending: false }).limit(1));
     main.innerHTML = `
       <div class="item"><h1>Clients</h1><div class="actions" style="margin:0"><button class="btn ghost small" id="add">Add a client</button><button class="btn ghost small" id="import">Import CSV</button><button class="btn small" id="export">Export CSV</button></div></div>
+      <p class="small muted">It's your data. We are just holding it. We won't use it for anything other than assisting you, personally.${wipe ? "" : ' <a href="#" id="wipe-open">Erase my client list</a>'}</p>
+      ${wipe ? `<div class="msg err"><strong>Client-list wipe ${wipe.confirmed_at ? "scheduled for " + fmtDate(wipe.scheduled_for) : "requested " + fmtDate(wipe.requested_at) + ", waiting for your email confirmation"}.</strong> ${wipe.confirmed_at ? "Clients attached to an open transaction are kept until it closes, then erased." : "Open the link we emailed you to confirm."} <a href="#" id="wipe-cancel">Cancel the wipe</a></div>` : ""}
+      <div id="wipebox" class="card hidden"><h3 style="margin-top:0">Erase my client list</h3>
+        <p class="small muted">This asks us to erase every client on your account. You confirm it from a link we email you; it is then reviewed to make sure no active transactions are in place and carried out 30 days after your confirmation unless you or we stop it. Clients on an open transaction are kept until it closes. Enter your authenticator code to start.</p>
+        <form id="f-wipe"><label>Six-digit code</label><input id="wcode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn danger" type="submit">Send me the confirmation email</button><button class="btn ghost" type="button" id="wcancel">Never mind</button></div></form></div>
       <div id="importbox" class="card hidden"><h3 style="margin-top:0">Import clients from a CSV</h3>
         <p class="small muted">Download the blank template, fill one row per person, then choose the file. Columns: Name (required), Role (buyer, seller, tenant, landlord, other), Phone, Email, Address, Notes. A row that matches one of your clients by name, email or phone updates that client with what changed; an identical row is dropped; every change is kept in the history.</p>
         <div class="actions"><button class="btn ghost small" type="button" id="template">Download the blank template</button><input type="file" id="csvfile" accept=".csv,text/csv" style="flex:1 1 14rem"><button class="btn small" type="button" id="doimport" disabled>Import</button></div>
@@ -176,6 +182,19 @@
       for (const u of plan.updates) { const { error } = await sb.from("clients").update(u.upd).eq("id", u.id); if (!error) updated++; else msg(M, error.message, "err"); }
       await audit("import_clients", { inserted: plan.inserts.length, updated, unchanged: plan.same });
       msg(M, `Imported: ${plan.inserts.length} new, ${updated} updated, ${plan.same} unchanged.`, "ok"); viewClients("all");
+    });
+    const wo = $("#wipe-open"); if (wo) wo.addEventListener("click", (e) => { e.preventDefault(); $("#wipebox").classList.remove("hidden"); $("#wcode").focus(); });
+    $("#wcancel").addEventListener("click", () => $("#wipebox").classList.add("hidden"));
+    $("#f-wipe").addEventListener("submit", async (e) => {
+      e.preventDefault(); msg(M, "");
+      try { await reverify($("#wcode").value.trim()); } catch (err) { msg(M, "That code did not match. Try the current one.", "err"); $("#wcode").value = ""; return; }
+      try { await ABO.fn("wipe", { action: "request" }); msg(M, "Check your email for the confirmation link. Nothing is erased until you confirm, and then not for 30 days.", "ok"); viewClients(filter); }
+      catch (err) { msg(M, err.message, "err"); }
+    });
+    const wc = $("#wipe-cancel"); if (wc) wc.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try { await ABO.fn("wipe", { action: "cancel", id: wipe.id }); msg(M, "The wipe is cancelled. Your clients stay as they are.", "ok"); viewClients(filter); }
+      catch (err) { msg(M, err.message, "err"); }
     });
     $("#export").addEventListener("click", () => { $("#exportbox").classList.remove("hidden"); $("#xcode").focus(); });
     $("#xcancel").addEventListener("click", () => $("#exportbox").classList.add("hidden"));
@@ -259,20 +278,34 @@
   }
   function summarize(d) { if (!d || typeof d !== "object") return ""; const o = { ...d }; delete o.ua; return Object.entries(o).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ").slice(0, 140); }
 
+  async function viewWipeConfirm(token) {
+    main.innerHTML = '<h1>Confirming…</h1>';
+    try {
+      const r = await ABO.fn("wipe", { action: "confirm", token });
+      main.innerHTML = `<h1>Wipe confirmed</h1><p>Your client list is scheduled to be erased on <strong>${fmtDate(r.scheduled_for)}</strong>.${r.open_transactions ? ` You have ${r.open_transactions} open transaction${r.open_transactions === 1 ? "" : "s"}; clients attached to them are kept until they close.` : ""} We will review it in the meantime. You can cancel any time from the <a href="#clients">Clients tab</a>.</p>`;
+    } catch (err) { main.innerHTML = `<h1>Could not confirm</h1><p>${esc(err.message)}</p><p><a href="#clients">Back to Clients</a></p>`; }
+  }
+
   // ---------------- feedback ----------------
+  let showOlder = false;
   async function viewFeedback() {
     const tx = await load("transactions", sb.from("transactions").select("id, property_label, property_address").order("opened_at", { ascending: false }).limit(50));
     const mine = await load("feedback", sb.from("feedback").select("*").order("created_at", { ascending: false }).limit(30));
     const name = (id) => { const t = tx.find(x => x.id === id); return t ? (t.property_label || t.property_address || "transaction") : ""; };
+    const cutoff = Date.now() - 30 * 86400000;
+    const recentFb = mine.filter(f => new Date(f.created_at).getTime() >= cutoff), older = mine.filter(f => new Date(f.created_at).getTime() < cutoff);
     main.innerHTML = `
       <h1>Feedback</h1><p class="muted">Tell us what works, what does not work, or what work you wish it would do. It lands with us directly.</p>
       <form id="f-fb" class="card"><div class="row">
         <div><select name="category">${Object.entries(FB_CATS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
         <div><select name="transaction_id"><option value="">Not about one transaction</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select></div></div>
-        <label>Your note</label><textarea name="body" required></textarea><div class="actions"><button class="btn" type="submit">Send</button></div></form>
-      ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted"><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category)}</span> ${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;
+        <label>Your note</label><textarea name="body" required></textarea>
+        <label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" name="wants_followup" style="width:auto"> I would like a follow-up</label>
+        <div class="actions"><button class="btn" type="submit">Send</button></div></form>
+      ${mine.length ? `<h2>Sent</h2>${older.length && !showOlder ? `<p class="small muted">Showing the last 30 days. <a href="#" id="fb-older">Show ${older.length} older</a></p>` : ""}<ul class="list">${(showOlder ? mine : recentFb).map(f => `<li><div class="item"><span class="small muted"><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category)}</span> ${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}${f.wants_followup ? ' <span class="tag">Follow-up asked</span>' : ""}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;
+    const fo = $("#fb-older"); if (fo) fo.addEventListener("click", (e) => { e.preventDefault(); showOlder = true; viewFeedback(); });
     $("#f-fb").addEventListener("submit", async (e) => {
-      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()); if (!f.transaction_id) f.transaction_id = null;
+      e.preventDefault(); const fd = new FormData(e.target); const f = Object.fromEntries(fd.entries()); if (!f.transaction_id) f.transaction_id = null; f.wants_followup = fd.get("wants_followup") === "on";
       const { data, error } = await sb.from("feedback").insert({ ...f, agent_id: uid, channel: "web" }).select("id").single();
       if (error) { msg(M, error.message, "err"); return; }
       if (f.category === "urgent") { try { await ABO.fn("notify", { event: "feedback_urgent", feedback_id: data.id }); } catch (err) { /* the row is saved regardless */ } }
@@ -288,6 +321,7 @@
     $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
     main.innerHTML = '<p class="muted">Loading…</p>';
     if (r === "t" && h.split("/")[1]) return viewTransaction(h.split("/")[1]);
+    if (r === "wipe" && h.split("/")[1]) return viewWipeConfirm(h.split("/")[1]);
     if (r === "clients") return viewClients();
     if (r === "profile") return viewProfile();
     if (r === "feedback") return viewFeedback();

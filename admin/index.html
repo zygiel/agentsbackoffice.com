@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Back office · Agents Back Office</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/site.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="/assets/abo.js"></script>
+</head>
+<body>
+<div class="wrap wide">
+  <header class="top">
+    <a class="brand" href="/admin/">Agents Back Office <span class="tag">back office</span></a>
+    <nav id="nav">
+      <a href="#queue" data-r="queue">Queue</a>
+      <a href="#transactions" data-r="transactions">Transactions</a>
+      <a href="#users" data-r="users">Users</a>
+      <a href="#feedback" data-r="feedback">Feedback</a>
+      <a href="#audit" data-r="audit">Audit log</a>
+      <a href="/app/">My portal</a>
+      <a href="#" id="signout">Sign out</a>
+    </nav>
+  </header>
+  <div id="msg" class="msg hidden"></div>
+  <main id="main"><p class="muted">Loading…</p></main>
+  <footer>Admin view. Everything here is recorded in the audit log.</footer>
+</div>
+<script>
+(async function () {
+  const { sb, $, $$, esc, fmtDate, fmtWhen, STATUS, QUEUE, OPEN_STATUSES, msg, audit } = ABO;
+  const st = await ABO.requireSession({ admin: true }); if (!st) return;
+  const M = $("#msg"), main = $("#main");
+  $("#signout").addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
+  async function load(q) { const { data, error } = await q; if (error) { msg(M, error.message, "err"); return []; } return data || []; }
+  const opt = (map, cur) => Object.entries(map).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v}</option>`).join("");
+  let profiles = [];
+  const who = (id) => { const p = profiles.find(x => x.id === id); return p ? (p.full_name || p.email) : (id ? id.slice(0, 8) : "system"); };
+  async function loadProfiles() { profiles = await load(sb.from("profiles").select("*").order("created_at")); }
+
+  // ---------------- queue ----------------
+  async function viewQueue(state) {
+    state = state || "open";
+    await loadProfiles();
+    let q = sb.from("packet_versions").select("id, version_no, forms, catalog_version, submitted_at, queue_state, queue_notes, agent_id, transaction_id, transactions(property_label, property_address, status)").order("submitted_at", { ascending: false }).limit(200);
+    if (state === "open") q = q.neq("queue_state", "done");
+    const rows = await load(q);
+    main.innerHTML = `<h1>Packet queue</h1>
+      <div class="tabs"><button data-s="open" class="${state === "open" ? "on" : ""}">Open</button><button data-s="all" class="${state === "all" ? "on" : ""}">All</button></div>
+      ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Received</th><th>Agent</th><th>Transaction</th><th>Version</th><th>Forms</th><th>State</th><th>Notes</th></tr></thead><tbody>
+      ${rows.map(r => `<tr data-id="${r.id}"><td>${fmtWhen(r.submitted_at)}</td><td>${esc(who(r.agent_id))}</td><td>${esc(r.transactions ? (r.transactions.property_label || r.transactions.property_address || "") : "")}<div class="small muted">${esc(STATUS[r.transactions && r.transactions.status] || "")}</div></td><td>v${r.version_no}</td><td class="small">${esc((r.forms || []).join(", "))}</td>
+        <td><select class="qs">${opt(QUEUE, r.queue_state)}</select></td><td><textarea class="qn" rows="1">${esc(r.queue_notes || "")}</textarea><button class="btn small qsave" style="margin-top:.3rem">Save</button></td></tr>`).join("")}</tbody></table></div>`
+      : '<p class="muted">Nothing in the queue.</p>'}`;
+    $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewQueue(b.dataset.s)));
+    $$(".qsave", main).forEach(b => b.addEventListener("click", async () => {
+      const tr = b.closest("tr"); const { error } = await sb.from("packet_versions").update({ queue_state: $(".qs", tr).value, queue_notes: $(".qn", tr).value || null }).eq("id", tr.dataset.id);
+      msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
+    }));
+  }
+
+  // ---------------- transactions (all agents) ----------------
+  async function viewTransactions(mode) {
+    mode = mode || "open"; await loadProfiles();
+    let q = sb.from("transactions").select("*").order("opened_at", { ascending: false }).limit(300);
+    if (mode === "open") q = q.in("status", OPEN_STATUSES);
+    const rows = await load(q);
+    main.innerHTML = `<div class="item"><h1>Transactions</h1><button class="btn small" id="newtx">New transaction</button></div>
+      <div class="tabs"><button data-m="open" class="${mode === "open" ? "on" : ""}">Open</button><button data-m="all" class="${mode === "all" ? "on" : ""}">All</button></div>
+      <div id="newbox" class="card hidden"><h3 style="margin-top:0">New transaction</h3><form id="f-new"><div class="row">
+        <div><label>Agent</label><select name="agent_id">${profiles.filter(p => !p.disabled).map(p => `<option value="${p.id}">${esc(p.full_name || p.email)}</option>`).join("")}</select></div>
+        <div><label>Side</label><select name="side"><option value="buyer">Buyer</option><option value="seller">Seller</option><option value="both">Both</option><option value="landlord">Landlord</option><option value="tenant">Tenant</option></select></div></div>
+        <div class="row"><div><label>Property identifier</label><input name="property_label" required></div><div><label>Address</label><input name="property_address"></div></div>
+        <div class="actions"><button class="btn" type="submit">Create</button></div></form></div>
+      ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Opened</th><th>Agent</th><th>Property</th><th>Status</th><th>Latest update</th><th>Key dates (JSON)</th><th></th></tr></thead><tbody>
+      ${rows.map(t => `<tr data-id="${t.id}"><td>${fmtDate(t.opened_at)}</td><td>${esc(who(t.agent_id))}</td><td>${esc(t.property_label || "")}<div class="small muted">${esc(t.property_address || "")}</div></td>
+        <td><select class="ts">${opt(STATUS, t.status)}</select></td><td><textarea class="tu" rows="2">${esc(t.latest_update || "")}</textarea></td><td><textarea class="td mono" rows="2">${esc(JSON.stringify(t.key_dates || {}))}</textarea></td><td><button class="btn small tsave">Save</button></td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">None.</p>'}`;
+    $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewTransactions(b.dataset.m)));
+    $("#newtx").addEventListener("click", () => $("#newbox").classList.toggle("hidden"));
+    $("#f-new").addEventListener("submit", async (e) => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()); if (!f.property_address) f.property_address = null;
+      const { error } = await sb.from("transactions").insert(f); msg(M, error ? error.message : "Created.", error ? "err" : "ok"); if (!error) viewTransactions(mode);
+    });
+    $$(".tsave", main).forEach(b => b.addEventListener("click", async () => {
+      const tr = b.closest("tr"); let kd; try { kd = JSON.parse($(".td", tr).value || "{}"); } catch (e) { msg(M, "Key dates must be JSON, e.g. {\"closing\":\"2026-11-20\"}", "err"); return; }
+      const status = $(".ts", tr).value;
+      const upd = { status, latest_update: $(".tu", tr).value || null, key_dates: kd, closed_at: OPEN_STATUSES.includes(status) ? null : new Date().toISOString() };
+      const { error } = await sb.from("transactions").update(upd).eq("id", tr.dataset.id); msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
+    }));
+  }
+
+  // ---------------- users ----------------
+  async function viewUsers() {
+    await loadProfiles();
+    main.innerHTML = `<h1>Users</h1>
+      <form id="f-invite" class="card"><h3 style="margin-top:0">Invite an agent</h3><div class="row">
+        <div><label>Email</label><input name="email" type="email" required></div><div><label>Name</label><input name="full_name"></div>
+        <div><label>Role</label><select name="role"><option value="agent">Agent</option><option value="admin">Admin</option></select></div></div>
+        <div class="actions"><button class="btn" type="submit">Send invite</button><span class="small muted">The invite email comes from no-reply@mail.agentsbackoffice.com and opens the sign-in page to set a password and an authenticator.</span></div></form>
+      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Two-factor</th><th>Status</th><th>Joined</th><th></th></tr></thead><tbody>
+      ${profiles.map(p => `<tr data-id="${p.id}"><td>${esc(p.full_name || "")}<div class="small muted">${esc(p.brokerage || "")}${p.license_no ? " · " + esc(p.license_no) : ""}</div></td><td>${esc(p.email)}</td>
+        <td><select class="ur">${opt({ agent: "Agent", admin: "Admin" }, p.role)}</select></td>
+        <td><select class="um">${opt({ true: "Required", false: "Cleared (override)" }, String(p.mfa_required))}</select></td>
+        <td><select class="ud">${opt({ false: "Active", true: "Disabled" }, String(p.disabled))}</select></td>
+        <td>${fmtDate(p.created_at)}</td><td class="actions" style="margin:0"><button class="btn small usave">Save</button><button class="btn ghost small ureset">Reset link</button><button class="btn ghost small uhist">History</button></td></tr>`).join("")}</tbody></table></div>
+      <div id="hist"></div>`;
+    $("#f-invite").addEventListener("submit", async (e) => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()); msg(M, "Sending…");
+      try { await ABO.fn("admin", { action: "invite", ...f }); msg(M, "Invite sent to " + f.email + ".", "ok"); e.target.reset(); viewUsers(); }
+      catch (err) { msg(M, err.message, "err"); }
+    });
+    $$(".usave", main).forEach(b => b.addEventListener("click", async () => {
+      const tr = b.closest("tr"); const upd = { role: $(".ur", tr).value, mfa_required: $(".um", tr).value === "true", disabled: $(".ud", tr).value === "true" };
+      const { error } = await sb.from("profiles").update(upd).eq("id", tr.dataset.id);
+      if (!error) await audit("admin_update_user", upd, { type: "profile", id: tr.dataset.id });
+      msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
+    }));
+    $$(".ureset", main).forEach(b => b.addEventListener("click", async () => {
+      const p = profiles.find(x => x.id === b.closest("tr").dataset.id);
+      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+      if (!error) await audit("admin_reset_link", {}, { type: "profile", id: p.id });
+      msg(M, error ? error.message : "Reset link sent to " + p.email + ".", error ? "err" : "ok");
+    }));
+    $$(".uhist", main).forEach(b => b.addEventListener("click", async () => {
+      const id = b.closest("tr").dataset.id;
+      const h = await load(sb.from("profile_history").select("*").eq("profile_id", id).order("changed_at", { ascending: false }).limit(100));
+      $("#hist").innerHTML = `<h2>Change history for ${esc(who(id))}</h2>${h.length ? `<div class="tablewrap"><table><thead><tr><th>When</th><th>By</th><th>Field</th><th>Old</th><th>New</th><th>Session</th></tr></thead><tbody>${h.map(r => `<tr><td>${fmtWhen(r.changed_at)}</td><td>${esc(who(r.changed_by))}</td><td>${esc(r.field)}</td><td>${esc(r.old_value || "")}</td><td>${esc(r.new_value || "")}</td><td class="mono small">${esc((r.session_id || "").slice(0, 8))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">No changes recorded.</p>'}`;
+      $("#hist").scrollIntoView({ behavior: "smooth" });
+    }));
+  }
+
+  // ---------------- feedback ----------------
+  async function viewFeedback() {
+    await loadProfiles();
+    const rows = await load(sb.from("feedback").select("*, transactions(property_label)").order("created_at", { ascending: false }).limit(200));
+    main.innerHTML = `<h1>Feedback</h1>${rows.length ? `<ul class="list">${rows.map(f => `<li data-id="${f.id}"><div class="item"><span><strong>${esc(who(f.agent_id))}</strong> <span class="small muted">${fmtWhen(f.created_at)} · ${esc(f.channel)}${f.transactions ? " · " + esc(f.transactions.property_label || "") : ""}</span></span>${f.handled_at ? `<span class="tag ok">Handled ${fmtDate(f.handled_at)}</span>` : '<button class="btn small fh">Mark handled</button>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : '<p class="muted">No feedback yet.</p>'}`;
+    $$(".fh", main).forEach(b => b.addEventListener("click", async () => {
+      const { error } = await sb.from("feedback").update({ handled_at: new Date().toISOString(), handled_by: st.session.user.id }).eq("id", b.closest("li").dataset.id);
+      msg(M, error ? error.message : "Marked.", error ? "err" : "ok"); if (!error) viewFeedback();
+    }));
+  }
+
+  // ---------------- audit ----------------
+  async function viewAudit() {
+    await loadProfiles();
+    const rows = await load(sb.from("audit_log").select("*").order("at", { ascending: false }).limit(300));
+    main.innerHTML = `<h1>Audit log</h1><p class="muted small">Append-only. Sign-ins, exports, invites, resets, admin changes, and every change to clients, transactions and packet versions.</p>
+      <div class="tablewrap"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(who(r.actor))}</td><td>${esc(r.action)}</td><td class="small">${esc(r.target_type || "")} <span class="mono">${esc((r.target_id || "").slice(0, 8))}</span></td><td><details><summary class="small muted">${esc(JSON.stringify(r.details).slice(0, 80))}</summary><pre>${esc(JSON.stringify(r.details, null, 1))}</pre></details></td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  async function route() {
+    msg(M, ""); const r = location.hash.replace(/^#/, "") || "queue";
+    $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
+    main.innerHTML = '<p class="muted">Loading…</p>';
+    return ({ queue: viewQueue, transactions: viewTransactions, users: viewUsers, feedback: viewFeedback, audit: viewAudit }[r] || viewQueue)();
+  }
+  window.addEventListener("hashchange", route); route();
+})();
+</script>
+</body>
+</html>

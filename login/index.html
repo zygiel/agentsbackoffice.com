@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in · Agents Back Office</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/site.css">
+<script>window.__arrivalHash = location.hash;</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="/assets/abo.js"></script>
+<style>
+main{max-width:26rem;margin:3rem auto}
+.step{display:none} .step.on{display:block}
+.secret{font-family:ui-monospace,Consolas,monospace;font-size:.95rem;letter-spacing:.08em;overflow-wrap:anywhere;background:var(--panel);padding:.5rem .7rem;border-radius:.4rem}
+</style>
+</head>
+<body>
+<main>
+  <p class="center"><a class="brand" href="/">Agents Back Office</a></p>
+  <div id="msg" class="msg hidden"></div>
+
+  <section id="signin" class="step card">
+    <h1>Sign in</h1>
+    <form id="f-signin">
+      <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+      <div class="actions"><button class="btn" type="submit">Continue</button><a href="#" id="forgot" class="small">Forgot your password?</a></div>
+    </form>
+    <p class="small muted" style="margin-top:1.2rem">Accounts are created by invitation. If you were invited, use the link in your email.</p>
+  </section>
+
+  <section id="forgot-step" class="step card">
+    <h1>Reset your password</h1>
+    <p class="muted">We will email you a link. It opens here and lets you set a new password; your authenticator app is still required afterwards.</p>
+    <form id="f-forgot">
+      <label for="femail">Email</label><input id="femail" type="email" autocomplete="username" required>
+      <div class="actions"><button class="btn" type="submit">Send the link</button><a href="#" id="back-signin" class="small">Back to sign in</a></div>
+    </form>
+  </section>
+
+  <section id="setpw" class="step card">
+    <h1 id="setpw-title">Set your password</h1>
+    <p class="muted">At least 12 characters. A phrase of a few words is easy to remember and hard to guess.</p>
+    <form id="f-setpw">
+      <label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" minlength="12" required>
+      <label for="pw2">Repeat it</label><input id="pw2" type="password" autocomplete="new-password" minlength="12" required>
+      <div class="actions"><button class="btn" type="submit">Save password</button></div>
+    </form>
+  </section>
+
+  <section id="enrol" class="step card">
+    <h1>Add your authenticator</h1>
+    <p class="muted">Every account uses a second step from an authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password and others). Scan the code, or type the key, then enter the six digits the app shows.</p>
+    <img id="qr" class="qr" alt="QR code for your authenticator app">
+    <details><summary class="small">Can't scan? Show the key</summary><p class="secret" id="secret"></p></details>
+    <form id="f-enrol">
+      <label for="ecode">Six-digit code</label><input id="ecode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required>
+      <div class="actions"><button class="btn" type="submit">Turn on</button><a href="#" id="enrol-signout" class="small">Sign out</a></div>
+    </form>
+  </section>
+
+  <section id="verify" class="step card">
+    <h1>Second step</h1>
+    <p class="muted">Enter the six-digit code from your authenticator app.</p>
+    <form id="f-verify">
+      <label for="vcode">Code</label><input id="vcode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required autofocus>
+      <div class="actions"><button class="btn" type="submit">Continue</button><a href="#" id="verify-signout" class="small">Sign out</a></div>
+    </form>
+    <p class="small muted">Lost the device? Ask an administrator; they can clear the requirement for your account while you set up a new one.</p>
+  </section>
+
+  <section id="disabled" class="step card">
+    <h1>Account disabled</h1>
+    <p>This account has been turned off. Contact us if you think that is a mistake.</p>
+    <div class="actions"><button class="btn ghost" id="disabled-signout">Sign out</button></div>
+  </section>
+</main>
+<script>
+(async function () {
+  const { sb, $, msg, audit, sessionState } = ABO;
+  const M = $("#msg");
+  const steps = ["signin", "forgot-step", "setpw", "enrol", "verify", "disabled"];
+  const show = (id) => { steps.forEach(s => $("#" + s).classList.toggle("on", s === id)); window.scrollTo(0, 0); };
+  const arrival = new URLSearchParams((window.__arrivalHash || "").replace(/^#/, ""));
+  const arrivalType = arrival.get("type") || (window.__arrivalHash === "#recovery" ? "recovery" : "");
+  if (arrival.get("error_description")) msg(M, arrival.get("error_description").replace(/\+/g, " ") + " Ask for a new link.", "err");
+  let needPassword = arrivalType === "invite" || arrivalType === "recovery" || arrivalType === "magiclink";
+  let enrolFactorId = null;
+
+  async function route() {
+    const st = await sessionState();
+    if (!st.session) { show("signin"); return; }
+    if (st.disabled) { show("disabled"); return; }
+    if (needPassword) { $("#setpw-title").textContent = arrivalType === "invite" ? "Welcome. Set your password" : "Set a new password"; show("setpw"); return; }
+    if (st.needsEnrol) { await startEnrol(); return; }
+    if (st.needsVerify) { show("verify"); setTimeout(() => $("#vcode").focus(), 50); return; }
+    if (st.ready) { await audit("sign_in", { via: arrivalType || "password", ua: navigator.userAgent.slice(0, 120) }); location.replace(st.profile.role === "admin" ? "/admin/" : "/app/"); return; }
+    show("signin");
+  }
+
+  async function startEnrol() {
+    // clear abandoned, unverified factors so a fresh enrolment can use the name
+    const { data: f } = await sb.auth.mfa.listFactors();
+    for (const x of (f && f.all) || []) if (x.status === "unverified") await sb.auth.mfa.unenroll({ factorId: x.id });
+    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Authenticator", issuer: "Agents Back Office" });
+    if (error) { msg(M, error.message, "err"); show("signin"); return; }
+    enrolFactorId = data.id;
+    $("#qr").src = data.totp.qr_code;
+    $("#secret").textContent = data.totp.secret;
+    show("enrol");
+  }
+
+  $("#f-signin").addEventListener("submit", async (e) => {
+    e.preventDefault(); msg(M, "");
+    const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#password").value });
+    if (error) { msg(M, error.message === "Invalid login credentials" ? "That email and password do not match." : error.message, "err"); return; }
+    await route();
+  });
+  $("#forgot").addEventListener("click", (e) => { e.preventDefault(); $("#femail").value = $("#email").value; show("forgot-step"); });
+  $("#back-signin").addEventListener("click", (e) => { e.preventDefault(); show("signin"); });
+  $("#f-forgot").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const { error } = await sb.auth.resetPasswordForEmail($("#femail").value.trim(), { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+    msg(M, error ? error.message : "If that address has an account, a reset link is on its way.", error ? "err" : "ok");
+    if (!error) show("signin");
+  });
+  $("#f-setpw").addEventListener("submit", async (e) => {
+    e.preventDefault(); msg(M, "");
+    const a = $("#pw1").value, b = $("#pw2").value;
+    if (a !== b) { msg(M, "The two passwords differ.", "err"); return; }
+    const { error } = await sb.auth.updateUser({ password: a });
+    if (error) { msg(M, error.message, "err"); return; }
+    await audit(arrivalType === "invite" ? "password_set" : "password_reset");
+    needPassword = false; msg(M, "Password saved.", "ok"); await route();
+  });
+  $("#f-enrol").addEventListener("submit", async (e) => {
+    e.preventDefault(); msg(M, "");
+    const ch = await sb.auth.mfa.challenge({ factorId: enrolFactorId });
+    if (ch.error) { msg(M, ch.error.message, "err"); return; }
+    const v = await sb.auth.mfa.verify({ factorId: enrolFactorId, challengeId: ch.data.id, code: $("#ecode").value.trim() });
+    if (v.error) { msg(M, "That code did not match. Codes change every 30 seconds; try the current one.", "err"); return; }
+    await audit("mfa_enrolled", { type: "totp" }); await route();
+  });
+  $("#f-verify").addEventListener("submit", async (e) => {
+    e.preventDefault(); msg(M, "");
+    const { data: f } = await sb.auth.mfa.listFactors();
+    const totp = (f && f.totp || [])[0];
+    const ch = await sb.auth.mfa.challenge({ factorId: totp.id });
+    if (ch.error) { msg(M, ch.error.message, "err"); return; }
+    const v = await sb.auth.mfa.verify({ factorId: totp.id, challengeId: ch.data.id, code: $("#vcode").value.trim() });
+    if (v.error) { msg(M, "That code did not match. Try the current one.", "err"); $("#vcode").value = ""; return; }
+    await route();
+  });
+  for (const id of ["enrol-signout", "verify-signout", "disabled-signout"]) $("#" + id).addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
+
+  // the invite/recovery hash is consumed by the client asynchronously; wait for it
+  if (window.__arrivalHash && /access_token|error/.test(window.__arrivalHash)) {
+    await new Promise(res => { let done = false; const t = setTimeout(() => { if (!done) { done = true; res(); } }, 2500);
+      sb.auth.onAuthStateChange((ev) => { if (!done && (ev === "SIGNED_IN" || ev === "INITIAL_SESSION" || ev === "PASSWORD_RECOVERY")) { done = true; clearTimeout(t); res(); } }); });
+  }
+  await route();
+})();
+</script>
+</body>
+</html>

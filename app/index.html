@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Portal · Agents Back Office</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/site.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="/assets/abo.js"></script>
+</head>
+<body>
+<div class="wrap wide">
+  <header class="top">
+    <a class="brand" href="/app/">Agents Back Office</a>
+    <nav id="nav">
+      <a href="#transactions" data-r="transactions">Transactions</a>
+      <a href="#clients" data-r="clients">Clients</a>
+      <a href="#profile" data-r="profile">Profile</a>
+      <a href="#feedback" data-r="feedback">Feedback</a>
+      <a href="#" id="signout">Sign out</a>
+    </nav>
+  </header>
+  <div id="msg" class="msg hidden"></div>
+  <main id="main"><p class="muted">Loading…</p></main>
+  <footer>Signed in as <span id="who"></span>. An agent sees only their own transactions and clients. <a href="/">About the service</a></footer>
+</div>
+
+<script>
+(async function () {
+  const { sb, $, $$, esc, fmtDate, fmtWhen, STATUS, OPEN_STATUSES, msg, audit, reverify, csv, download } = ABO;
+  const st = await ABO.requireSession(); if (!st) return;
+  const me = st.profile; const uid = st.session.user.id;
+  $("#who").textContent = me.full_name || me.email;
+  if (me.role === "admin") $("#nav").insertAdjacentHTML("afterbegin", '<a href="/admin/">Back office</a>');
+  const M = $("#msg"), main = $("#main");
+  $("#signout").addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
+
+  const PACKET_URL = "https://claude.ai/artifact/AgL8ke7iGH4mZ1SDbK3uLf";   // the Driveway Packet page, until the builder moves inside
+  const SIDES = { buyer: "Buyer", seller: "Seller", both: "Both sides", landlord: "Landlord", tenant: "Tenant" };
+  const ROLES = { buyer: "Buyer", seller: "Seller", tenant: "Tenant", landlord: "Landlord", other: "Other" };
+  const tag = (s) => `<span class="tag ${OPEN_STATUSES.includes(s) ? (s === "waiting_on_agent" ? "warn" : "ok") : ""}">${esc(STATUS[s] || s)}</span>`;
+
+  async function load(table, q) { const { data, error } = await q; if (error) { msg(M, error.message, "err"); return []; } return data || []; }
+
+  // ---------------- transactions ----------------
+  async function viewTransactions(mode) {
+    mode = mode || localStorage.getItem("abo.tx") || "open";
+    try { localStorage.setItem("abo.tx", mode); } catch (e) {}
+    let q = sb.from("transactions").select("*").order("opened_at", { ascending: false });
+    if (mode === "open") q = q.in("status", OPEN_STATUSES);
+    const rows = await load("transactions", q);
+    main.innerHTML = `
+      <div class="item"><h1>Transactions</h1><a class="btn" href="${PACKET_URL}" target="_blank" rel="noopener">Send a new transaction</a></div>
+      <div class="tabs"><button data-m="open" class="${mode === "open" ? "on" : ""}">Open</button><button data-m="all" class="${mode === "all" ? "on" : ""}">All</button></div>
+      ${rows.length ? `<ul class="list">${rows.map(t => `
+        <li><div class="item"><a class="title" href="#t/${t.id}">${esc(t.property_label || t.property_address || "Untitled transaction")}</a>${tag(t.status)}</div>
+        <div class="small muted">${esc(SIDES[t.side] || "")}${t.property_label && t.property_address ? " · " + esc(t.property_address) : ""} · opened ${fmtDate(t.opened_at)}${t.latest_update ? " · " + esc(t.latest_update) : ""}</div></li>`).join("")}</ul>`
+        : `<p class="muted">${mode === "open" ? "No open transactions." : "No transactions yet."} When you send a packet it appears here with its status.</p>`}
+      <p class="notice">The packet page still opens in its own tab while the builder moves inside the portal. Your profile details will fill in automatically once it does.</p>`;
+    $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewTransactions(b.dataset.m)));
+  }
+
+  async function viewTransaction(id) {
+    const [t] = await load("transactions", sb.from("transactions").select("*").eq("id", id).limit(1));
+    if (!t) { main.innerHTML = "<p>Not found.</p>"; return; }
+    const versions = await load("packet_versions", sb.from("packet_versions").select("id,version_no,catalog_version,forms,submitted_at,queue_state,answers").eq("transaction_id", id).order("version_no", { ascending: false }));
+    const parties = await load("transaction_clients", sb.from("transaction_clients").select("role, clients(id, full_name, phone, email)").eq("transaction_id", id));
+    const dates = Object.entries(t.key_dates || {});
+    main.innerHTML = `
+      <p><a href="#transactions" class="small">← Transactions</a></p>
+      <div class="item"><h1>${esc(t.property_label || t.property_address || "Transaction")}</h1>${tag(t.status)}</div>
+      <p class="muted">${esc(SIDES[t.side] || "")}${t.property_address ? " · " + esc(t.property_address) : ""} · opened ${fmtDate(t.opened_at)}${t.closed_at ? " · closed " + fmtDate(t.closed_at) : ""}</p>
+      ${t.latest_update ? `<div class="card flat"><p class="eyebrow">Latest update</p><p style="margin:0">${esc(t.latest_update)}</p></div>` : ""}
+      <div class="grid">
+        <div class="card"><h3 style="margin-top:0">Key dates</h3>${dates.length ? `<dl class="kv">${dates.map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${esc(fmtDate(v) || v)}</dd>`).join("")}</dl>` : '<p class="muted small">None recorded yet.</p>'}</div>
+        <div class="card"><h3 style="margin-top:0">Parties</h3>${parties.length ? `<ul class="list">${parties.map(p => `<li><a href="#clients" class="title">${esc(p.clients.full_name)}</a> <span class="tag">${esc(ROLES[p.role] || "")}</span><div class="small muted">${esc([p.clients.phone, p.clients.email].filter(Boolean).join(" · "))}</div></li>`).join("")}</ul>` : '<p class="muted small">No parties linked yet.</p>'}</div>
+      </div>
+      <div class="item"><h2>Packet versions</h2><a class="btn small" href="${PACKET_URL}" target="_blank" rel="noopener">Add to this transaction</a></div>
+      ${versions.length ? versions.map(v => `
+        <details class="card"><summary><strong>Version ${v.version_no}</strong> · ${fmtWhen(v.submitted_at)} · ${esc((v.forms || []).join(", ") || "forms not listed")}${v.catalog_version ? " · catalog " + esc(v.catalog_version) : ""}</summary>
+          ${renderAnswers(v.answers)}</details>`).join("") : '<p class="muted">No packet versions on this transaction yet.</p>'}`;
+  }
+  function renderAnswers(a) {
+    if (!a || typeof a !== "object" || !Object.keys(a).length) return '<p class="muted small">No answers stored.</p>';
+    return Object.entries(a).map(([form, fields]) => `<h3>${esc(form)}</h3><dl class="kv">${Object.entries(fields && typeof fields === "object" ? fields : { value: fields }).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</dd>`).join("")}</dl>`).join("");
+  }
+
+  // ---------------- clients ----------------
+  async function viewClients(filter) {
+    filter = filter || localStorage.getItem("abo.cl") || "active";
+    try { localStorage.setItem("abo.cl", filter); } catch (e) {}
+    const clients = await load("clients", sb.from("clients").select("*").order("full_name"));
+    const links = await load("transaction_clients", sb.from("transaction_clients").select("client_id, transactions(id, status, closed_at, opened_at, property_label)"));
+    const byClient = {}; links.forEach(l => { (byClient[l.client_id] = byClient[l.client_id] || []).push(l.transactions); });
+    const months = { "6m": 6, "1y": 12 }[filter];
+    const since = months ? new Date(Date.now() - months * 30.44 * 86400000) : null;
+    const rows = clients.filter(c => {
+      const ts = byClient[c.id] || [];
+      if (filter === "active") return ts.some(t => t && OPEN_STATUSES.includes(t.status));
+      if (since) return ts.some(t => t && new Date(t.closed_at || t.opened_at) >= since) || new Date(c.created_at) >= since;
+      return true;
+    });
+    const labels = { active: "Active", "6m": "6 months", "1y": "1 year", all: "All" };
+    main.innerHTML = `
+      <div class="item"><h1>Clients</h1><div class="actions" style="margin:0"><button class="btn ghost small" id="add">Add a client</button><button class="btn small" id="export">Export CSV</button></div></div>
+      <div class="tabs">${Object.entries(labels).map(([k, v]) => `<button data-f="${k}" class="${filter === k ? "on" : ""}">${v}</button>`).join("")}</div>
+      <div id="addform" class="card hidden"><h3 style="margin-top:0">New client</h3><form id="f-add"><div class="row">
+        <div><label>Name</label><input name="full_name" required></div><div><label>Role</label><select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
+        <div class="row"><div><label>Phone</label><input name="phone" type="tel"></div><div><label>Email</label><input name="email" type="email"></div></div>
+        <label>Notes</label><textarea name="notes"></textarea><div class="actions"><button class="btn" type="submit">Save</button></div></form></div>
+      <div id="exportbox" class="card hidden"><h3 style="margin-top:0">Confirm the export</h3><p class="muted small">Exporting your client list needs a fresh code from your authenticator app. The export is recorded and we will confirm it by email${me.sms_opt_in && me.phone ? " and text" : ""}.</p>
+        <form id="f-export"><label>Six-digit code</label><input id="xcode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn" type="submit">Download ${rows.length} row${rows.length === 1 ? "" : "s"}</button><button class="btn ghost" type="button" id="xcancel">Cancel</button></div></form></div>
+      ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Transactions</th></tr></thead><tbody>
+        ${rows.map(c => `<tr><td>${esc(c.full_name)}</td><td>${esc(ROLES[c.role] || "")}</td><td>${esc(c.phone || "")}</td><td>${esc(c.email || "")}</td><td class="small">${(byClient[c.id] || []).filter(Boolean).map(t => `<a href="#t/${t.id}">${esc(t.property_label || "transaction")}</a>`).join(", ")}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="muted">${filter === "active" ? "No clients in an open transaction." : "No clients in this range."} Clients are added from your packets and from the button above; nothing is imported.</p>`}`;
+    $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewClients(b.dataset.f)));
+    $("#add").addEventListener("click", () => $("#addform").classList.toggle("hidden"));
+    $("#f-add").addEventListener("submit", async (e) => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries());
+      Object.keys(f).forEach(k => { if (f[k] === "") f[k] = null; });
+      const { error } = await sb.from("clients").insert({ ...f, agent_id: uid });
+      if (error) { msg(M, error.message, "err"); return; }
+      msg(M, "Client saved.", "ok"); viewClients(filter);
+    });
+    $("#export").addEventListener("click", () => { $("#exportbox").classList.remove("hidden"); $("#xcode").focus(); });
+    $("#xcancel").addEventListener("click", () => $("#exportbox").classList.add("hidden"));
+    $("#f-export").addEventListener("submit", async (e) => {
+      e.preventDefault(); msg(M, "");
+      try { await reverify($("#xcode").value.trim()); }
+      catch (err) { msg(M, "That code did not match. Try the current one.", "err"); $("#xcode").value = ""; return; }
+      const text = csv(rows, [{ key: "full_name", label: "Name" }, { label: "Role", get: r => ROLES[r.role] || "" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" },
+        { label: "Transactions", get: r => (byClient[r.id] || []).filter(Boolean).map(t => t.property_label || "").join("; ") }, { key: "notes", label: "Notes" }]);
+      download(`clients-${filter}-${new Date().toISOString().slice(0, 10)}.csv`, text);
+      await audit("export_clients", { filter, rows: rows.length });
+      try { await ABO.fn("notify", { event: "export_clients", rows: rows.length, filter }); } catch (err) { /* confirmation is best-effort */ }
+      $("#exportbox").classList.add("hidden"); msg(M, `Exported ${rows.length} rows. The export is recorded on your account.`, "ok");
+    });
+  }
+
+  // ---------------- profile ----------------
+  async function viewProfile() {
+    const [p] = await load("profiles", sb.from("profiles").select("*").eq("id", uid).limit(1));
+    const { data: f } = await sb.auth.mfa.listFactors();
+    const totp = (f && f.totp) || [];
+    const recent = await load("audit_log", sb.from("audit_log").select("at, action, details").eq("actor", uid).order("at", { ascending: false }).limit(15));
+    main.innerHTML = `
+      <h1>Your profile</h1>
+      <p class="muted">These details fill in your packets. Every change is kept in a history we can read if an account is ever tampered with.</p>
+      <form id="f-profile" class="card">
+        <div class="row"><div><label>Your name</label><input name="full_name" value="${esc(p.full_name || "")}"></div><div><label>Your OREC license #</label><input name="license_no" value="${esc(p.license_no || "")}"></div></div>
+        <div class="row"><div><label>Phone</label><input name="phone" type="tel" value="${esc(p.phone || "")}"></div><div><label>Email</label><input value="${esc(p.email)}" disabled></div></div>
+        <div class="row"><div><label>Brokerage</label><input name="brokerage" value="${esc(p.brokerage || "")}"></div><div><label>I usually represent the</label><select name="represents_default"><option value="">—</option>${["buyer", "seller", "both"].map(v => `<option value="${v}" ${p.represents_default === v ? "selected" : ""}>${SIDES[v]}</option>`).join("")}</select></div></div>
+        <label style="display:flex;gap:.5rem;align-items:center;margin-top:1rem"><input type="checkbox" name="sms_opt_in" style="width:auto" ${p.sms_opt_in ? "checked" : ""}> Text me confirmations and status updates at the phone above (standard rates; reply STOP to end).</label>
+        <div class="actions"><button class="btn" type="submit">Save</button></div>
+      </form>
+      <div class="grid">
+        <div class="card"><h3 style="margin-top:0">Password</h3><p class="small muted">Password changes go through an emailed link, so a stolen session cannot change it.</p><button class="btn ghost small" id="pwreset">Email me a reset link</button></div>
+        <div class="card"><h3 style="margin-top:0">Authenticator app</h3><p class="small muted">${totp.length ? `On since ${fmtDate(totp[0].created_at)}.` : "Not enrolled."}${p.mfa_required === false ? " An administrator has cleared the requirement for this account." : ""}</p>
+          ${totp.length ? "" : '<a class="btn ghost small" href="/login/">Set it up</a>'}</div>
+        <div class="card"><h3 style="margin-top:0">Sessions</h3><p class="small muted">Signs this account out on every device, including this one.</p><button class="btn ghost small" id="signout-all">Sign out everywhere</button></div>
+      </div>
+      <h2>Recent activity on your account</h2>
+      ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Details</th></tr></thead><tbody>${recent.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(r.action.replace(/_/g, " "))}</td><td class="small muted">${esc(summarize(r.details))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Nothing yet.</p>'}`;
+    $("#f-profile").addEventListener("submit", async (e) => {
+      e.preventDefault(); const fd = new FormData(e.target); const f = Object.fromEntries(fd.entries()); f.sms_opt_in = fd.get("sms_opt_in") === "on";
+      Object.keys(f).forEach(k => { if (f[k] === "") f[k] = null; });
+      const { error } = await sb.from("profiles").update(f).eq("id", uid);
+      msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
+    });
+    $("#pwreset").addEventListener("click", async () => {
+      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+      msg(M, error ? error.message : "Reset link sent to " + p.email + ".", error ? "err" : "ok");
+    });
+    $("#signout-all").addEventListener("click", () => ABO.signOut(true));
+  }
+  function summarize(d) { if (!d || typeof d !== "object") return ""; const o = { ...d }; delete o.ua; return Object.entries(o).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ").slice(0, 140); }
+
+  // ---------------- feedback ----------------
+  async function viewFeedback() {
+    const tx = await load("transactions", sb.from("transactions").select("id, property_label, property_address").order("opened_at", { ascending: false }).limit(50));
+    const mine = await load("feedback", sb.from("feedback").select("*").order("created_at", { ascending: false }).limit(30));
+    const name = (id) => { const t = tx.find(x => x.id === id); return t ? (t.property_label || t.property_address || "transaction") : ""; };
+    main.innerHTML = `
+      <h1>Feedback</h1><p class="muted">Tell us what worked, what did not, or what you want the portal to do. It lands with us directly.</p>
+      <form id="f-fb" class="card"><label>About a transaction (optional)</label><select name="transaction_id"><option value="">General</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select>
+        <label>Your note</label><textarea name="body" required></textarea><div class="actions"><button class="btn" type="submit">Send</button></div></form>
+      ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted">${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;
+    $("#f-fb").addEventListener("submit", async (e) => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()); if (!f.transaction_id) f.transaction_id = null;
+      const { error } = await sb.from("feedback").insert({ ...f, agent_id: uid, channel: "web" });
+      if (error) { msg(M, error.message, "err"); return; }
+      msg(M, "Thank you. It has been sent.", "ok"); viewFeedback();
+    });
+  }
+
+  // ---------------- router ----------------
+  async function route() {
+    msg(M, "");
+    const h = location.hash.replace(/^#/, "") || "transactions";
+    const r = h.split("/")[0];
+    $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
+    main.innerHTML = '<p class="muted">Loading…</p>';
+    if (r === "t" && h.split("/")[1]) return viewTransaction(h.split("/")[1]);
+    if (r === "clients") return viewClients();
+    if (r === "profile") return viewProfile();
+    if (r === "feedback") return viewFeedback();
+    return viewTransactions();
+  }
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>

@@ -17,7 +17,7 @@ Pages not yet published. `drafts/index_full.html` is the full first draft of the
 
 ## Pages (2026-11-01)
 
-- `/` coming-soon page with a sign-in button only (owner: nothing explained to the public yet); the descriptive version is `drafts/index_portal_preview.html`.
+- `/` coming-soon page with a sign-in button only (owner: nothing explained to the public yet); the descriptive version is served at `/preview.html` to signed-in accounts only (a client-side guard; the HTML itself is public like everything in this repo) and kept in `drafts/index_portal_preview.html`.
 - `/login/` sign in, invite and reset links land here (Supabase site_url); sets the password, enrols the authenticator app, verifies the code.
 - `/app/` the agent portal: Transactions (Open/All, detail with packet versions), Clients (Active / 6 months / 1 year / All, CSV export behind a fresh authenticator code), Profile (fills packets; change history kept server-side), Feedback.
 - `/admin/` back office: packet queue, all transactions, users (invite, role, two-factor override, disable, reset link, change history), feedback, audit log.

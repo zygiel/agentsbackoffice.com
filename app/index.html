@@ -42,6 +42,7 @@
   const PACKET_URL = "https://claude.ai/artifact/AgL8ke7iGH4mZ1SDbK3uLf";   // the Driveway Packet page, until the builder moves inside
   const SIDES = { buyer: "Buyer", seller: "Seller", both: "Both sides", landlord: "Landlord", tenant: "Tenant" };
   const ROLES = { buyer: "Buyer", seller: "Seller", tenant: "Tenant", landlord: "Landlord", other: "Other" };
+  const FB_CATS = { general: "General", urgent: "Urgent", feature: "Feature Request", bug: "Report a Bug", support: "Questions and Support" };
   const tag = (s) => `<span class="tag ${OPEN_STATUSES.includes(s) ? (s === "waiting_on_agent" ? "warn" : "ok") : ""}">${esc(STATUS[s] || s)}</span>`;
 
   async function load(table, q) { const { data, error } = await q; if (error) { msg(M, error.message, "err"); return []; } return data || []; }
@@ -265,14 +266,17 @@
     const name = (id) => { const t = tx.find(x => x.id === id); return t ? (t.property_label || t.property_address || "transaction") : ""; };
     main.innerHTML = `
       <h1>Feedback</h1><p class="muted">Tell us what works, what does not work, or what work you wish it would do. It lands with us directly.</p>
-      <form id="f-fb" class="card"><label>About a transaction (optional)</label><select name="transaction_id"><option value="">General</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select>
+      <form id="f-fb" class="card"><div class="row">
+        <div><select name="category">${Object.entries(FB_CATS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+        <div><select name="transaction_id"><option value="">Not about one transaction</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select></div></div>
         <label>Your note</label><textarea name="body" required></textarea><div class="actions"><button class="btn" type="submit">Send</button></div></form>
-      ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted">${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;
+      ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted"><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category)}</span> ${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;
     $("#f-fb").addEventListener("submit", async (e) => {
       e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()); if (!f.transaction_id) f.transaction_id = null;
-      const { error } = await sb.from("feedback").insert({ ...f, agent_id: uid, channel: "web" });
+      const { data, error } = await sb.from("feedback").insert({ ...f, agent_id: uid, channel: "web" }).select("id").single();
       if (error) { msg(M, error.message, "err"); return; }
-      msg(M, "Thank you. It has been sent.", "ok"); viewFeedback();
+      if (f.category === "urgent") { try { await ABO.fn("notify", { event: "feedback_urgent", feedback_id: data.id }); } catch (err) { /* the row is saved regardless */ } }
+      msg(M, f.category === "urgent" ? "Sent and flagged urgent. We have been notified." : "Thank you. It has been sent.", "ok"); viewFeedback();
     });
   }
 

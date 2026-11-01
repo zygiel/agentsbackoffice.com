@@ -37,6 +37,7 @@
   const M = $("#msg"), main = $("#main");
   $("#signout").addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
   async function load(q) { const { data, error } = await q; if (error) { msg(M, error.message, "err"); return []; } return data || []; }
+  const FB_CATS = { general: "General", urgent: "Urgent", feature: "Feature Request", bug: "Report a Bug", support: "Questions and Support" };
   const opt = (map, cur) => Object.entries(map).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v}</option>`).join("");
   let profiles = [];
   const who = (id) => { const p = profiles.find(x => x.id === id); return p ? (p.full_name || p.email) : (id ? id.slice(0, 8) : "system"); };
@@ -135,7 +136,7 @@
   async function viewFeedback() {
     await loadProfiles();
     const rows = await load(sb.from("feedback").select("*, transactions(property_label)").order("created_at", { ascending: false }).limit(200));
-    main.innerHTML = `<h1>Feedback</h1>${rows.length ? `<ul class="list">${rows.map(f => `<li data-id="${f.id}"><div class="item"><span><strong>${esc(who(f.agent_id))}</strong> <span class="small muted">${fmtWhen(f.created_at)} · ${esc(f.channel)}${f.transactions ? " · " + esc(f.transactions.property_label || "") : ""}</span></span>${f.handled_at ? `<span class="tag ok">Handled ${fmtDate(f.handled_at)}</span>` : '<button class="btn small fh">Mark handled</button>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : '<p class="muted">No feedback yet.</p>'}`;
+    main.innerHTML = `<h1>Feedback</h1>${rows.length ? `<ul class="list">${rows.map(f => `<li data-id="${f.id}"><div class="item"><span><span class="tag ${f.category === "urgent" ? "bad" : ""}">${esc(FB_CATS[f.category] || f.category || "General")}</span> <strong>${esc(who(f.agent_id))}</strong> <span class="small muted">${fmtWhen(f.created_at)} · ${esc(f.channel)}${f.transactions ? " · " + esc(f.transactions.property_label || "") : ""}</span></span>${f.handled_at ? `<span class="tag ok">Handled ${fmtDate(f.handled_at)}</span>` : '<button class="btn small fh">Mark handled</button>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : '<p class="muted">No feedback yet.</p>'}`;
     $$(".fh", main).forEach(b => b.addEventListener("click", async () => {
       const { error } = await sb.from("feedback").update({ handled_at: new Date().toISOString(), handled_by: st.session.user.id }).eq("id", b.closest("li").dataset.id);
       msg(M, error ? error.message : "Marked.", error ? "err" : "ok"); if (!error) viewFeedback();

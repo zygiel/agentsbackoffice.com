@@ -8,7 +8,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/assets/site.css">
-<script>window.__arrivalHash = location.hash;</script>
+<script>
+// older reset emails were built with a "#recovery" fragment and the server appended its tokens after it;
+// fold that into one fragment before the auth library reads the URL
+if (/^#recovery(#|&)/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search + "#" + location.hash.replace(/^#recovery[#&]/, ""));
+window.__arrivalHash = location.hash;
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
 <script src="/assets/abo.js"></script>
 <style>
@@ -21,6 +26,7 @@ main{max-width:26rem;margin:3rem auto}
 <main>
   <p class="center"><a class="brand" href="/">Agents Back Office</a></p>
   <div id="msg" class="msg hidden"></div>
+  <p id="manual" class="center small hidden"><a href="#" id="manual-continue">Continue</a> · <a href="#" id="manual-signout">Sign out</a></p>
 
   <section id="signin" class="step card">
     <h1>Sign in</h1>
@@ -90,7 +96,17 @@ main{max-width:26rem;margin:3rem auto}
   let needPassword = arrivalType === "invite" || arrivalType === "recovery" || arrivalType === "magiclink";
   let enrolFactorId = null;
 
+  // any failure inside the flow is shown and recorded, never swallowed
+  async function report(where, err) {
+    const text = (err && (err.message || err.error_description)) || String(err);
+    msg(M, "Something went wrong at step \"" + where + "\": " + text + " You can try again or sign out.", "err");
+    $("#manual").classList.remove("hidden");
+    try { const { data: { user } } = await sb.auth.getUser(); if (user) await sb.from("audit_log").insert({ actor: user.id, action: "client_error", details: { where, text: text.slice(0, 300), ua: navigator.userAgent.slice(0, 120) } }); } catch (e) { /* ignore */ }
+  }
   async function route() {
+    try { await routeInner(); } catch (e) { await report("route", e); }
+  }
+  async function routeInner() {
     const st = await sessionState();
     if (!st.session) { show("signin"); return; }
     if (st.disabled) { show("disabled"); return; }
@@ -102,28 +118,32 @@ main{max-width:26rem;margin:3rem auto}
   }
 
   async function startEnrol() {
+    show("enrol"); $("#qr").removeAttribute("src"); $("#secret").textContent = "Preparing your code…";
     // clear abandoned, unverified factors so a fresh enrolment can use the name
-    const { data: f } = await sb.auth.mfa.listFactors();
-    for (const x of (f && f.all) || []) if (x.status === "unverified") await sb.auth.mfa.unenroll({ factorId: x.id });
+    const lf = await sb.auth.mfa.listFactors();
+    if (lf.error) throw lf.error;
+    for (const x of (lf.data && lf.data.all) || []) if (x.status === "unverified") { const u = await sb.auth.mfa.unenroll({ factorId: x.id }); if (u.error) throw u.error; }
     const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Authenticator", issuer: "Agents Back Office" });
-    if (error) { msg(M, error.message, "err"); show("signin"); return; }
+    if (error) throw error;
     enrolFactorId = data.id;
     $("#qr").src = data.totp.qr_code;
     $("#secret").textContent = data.totp.secret;
-    show("enrol");
   }
 
   $("#f-signin").addEventListener("submit", async (e) => {
     e.preventDefault(); msg(M, "");
-    const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#password").value });
-    if (error) { msg(M, error.message === "Invalid login credentials" ? "That email and password do not match." : error.message, "err"); return; }
-    await route();
+    const btn = $("#f-signin button"); btn.disabled = true;
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#password").value });
+      if (error) { msg(M, error.message === "Invalid login credentials" ? "That email and password do not match." : error.message, "err"); return; }
+      await route();
+    } catch (err) { await report("sign in", err); } finally { btn.disabled = false; }
   });
   $("#forgot").addEventListener("click", (e) => { e.preventDefault(); $("#femail").value = $("#email").value; show("forgot-step"); });
   $("#back-signin").addEventListener("click", (e) => { e.preventDefault(); show("signin"); });
   $("#f-forgot").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const { error } = await sb.auth.resetPasswordForEmail($("#femail").value.trim(), { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+    const { error } = await sb.auth.resetPasswordForEmail($("#femail").value.trim(), { redirectTo: "https://agentsbackoffice.com/login/" });
     msg(M, error ? error.message : "If that address has an account, a reset link is on its way.", error ? "err" : "ok");
     if (!error) show("signin");
   });
@@ -131,18 +151,27 @@ main{max-width:26rem;margin:3rem auto}
     e.preventDefault(); msg(M, "");
     const a = $("#pw1").value, b = $("#pw2").value;
     if (a !== b) { msg(M, "The two passwords differ.", "err"); return; }
-    const { error } = await sb.auth.updateUser({ password: a });
-    if (error) { msg(M, error.message, "err"); return; }
-    await audit(arrivalType === "invite" ? "password_set" : "password_reset");
-    needPassword = false; msg(M, "Password saved.", "ok"); await route();
+    const btn = $("#f-setpw button"); btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      const { error } = await sb.auth.updateUser({ password: a });
+      if (error) { msg(M, error.message, "err"); return; }
+      await audit(arrivalType === "invite" ? "password_set" : "password_reset");
+      needPassword = false; msg(M, "Password saved. Next: your authenticator app.", "ok"); await route();
+    } catch (err) { await report("save password", err); }
+    finally { btn.disabled = false; btn.textContent = "Save password"; }
   });
+  $("#manual-continue").addEventListener("click", async (e) => { e.preventDefault(); needPassword = false; msg(M, ""); await route(); });
+  $("#manual-signout").addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
   $("#f-enrol").addEventListener("submit", async (e) => {
     e.preventDefault(); msg(M, "");
-    const ch = await sb.auth.mfa.challenge({ factorId: enrolFactorId });
-    if (ch.error) { msg(M, ch.error.message, "err"); return; }
-    const v = await sb.auth.mfa.verify({ factorId: enrolFactorId, challengeId: ch.data.id, code: $("#ecode").value.trim() });
-    if (v.error) { msg(M, "That code did not match. Codes change every 30 seconds; try the current one.", "err"); return; }
-    await audit("mfa_enrolled", { type: "totp" }); await route();
+    try {
+      if (!enrolFactorId) { await startEnrol(); msg(M, "A fresh code was prepared; scan it and enter the digits.", "ok"); return; }
+      const ch = await sb.auth.mfa.challenge({ factorId: enrolFactorId });
+      if (ch.error) { msg(M, ch.error.message, "err"); return; }
+      const v = await sb.auth.mfa.verify({ factorId: enrolFactorId, challengeId: ch.data.id, code: $("#ecode").value.trim() });
+      if (v.error) { msg(M, "That code did not match. Codes change every 30 seconds; try the current one.", "err"); return; }
+      await audit("mfa_enrolled", { type: "totp" }); await route();
+    } catch (err) { await report("authenticator setup", err); }
   });
   $("#f-verify").addEventListener("submit", async (e) => {
     e.preventDefault(); msg(M, "");
@@ -156,11 +185,14 @@ main{max-width:26rem;margin:3rem auto}
   });
   for (const id of ["enrol-signout", "verify-signout", "disabled-signout"]) $("#" + id).addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
 
-  // the invite/recovery hash is consumed by the client asynchronously; wait for it
+  // the invite/recovery hash is consumed by the client asynchronously; wait until a session exists (or give up after 6 s)
   if (window.__arrivalHash && /access_token|error/.test(window.__arrivalHash)) {
-    await new Promise(res => { let done = false; const t = setTimeout(() => { if (!done) { done = true; res(); } }, 2500);
-      sb.auth.onAuthStateChange((ev) => { if (!done && (ev === "SIGNED_IN" || ev === "INITIAL_SESSION" || ev === "PASSWORD_RECOVERY")) { done = true; clearTimeout(t); res(); } }); });
+    msg(M, "Checking your link…");
+    for (let i = 0; i < 30; i++) { const { data: { session } } = await sb.auth.getSession(); if (session) break; await new Promise(r => setTimeout(r, 200)); }
+    msg(M, "");
   }
+  window.addEventListener("unhandledrejection", (ev) => report("page", ev.reason));
+  window.addEventListener("error", (ev) => report("page", ev.error || ev.message));
   await route();
 })();
 </script>

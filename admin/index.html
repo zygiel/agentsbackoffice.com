@@ -120,7 +120,7 @@
     }));
     $$(".ureset", main).forEach(b => b.addEventListener("click", async () => {
       const p = profiles.find(x => x.id === b.closest("tr").dataset.id);
-      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/" });
       if (!error) await audit("admin_reset_link", {}, { type: "profile", id: p.id });
       msg(M, error ? error.message : "Reset link sent to " + p.email + ".", error ? "err" : "ok");
     }));

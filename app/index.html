@@ -172,7 +172,7 @@
       msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
     });
     $("#pwreset").addEventListener("click", async () => {
-      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/#recovery" });
+      const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: "https://agentsbackoffice.com/login/" });
       msg(M, error ? error.message : "Reset link sent to " + p.email + ".", error ? "err" : "ok");
     });
     $("#signout-all").addEventListener("click", () => ABO.signOut(true));

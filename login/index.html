@@ -92,7 +92,14 @@ main{max-width:26rem;margin:3rem auto}
   const show = (id) => { steps.forEach(s => $("#" + s).classList.toggle("on", s === id)); window.scrollTo(0, 0); };
   const arrival = new URLSearchParams((window.__arrivalHash || "").replace(/^#/, ""));
   const arrivalType = arrival.get("type") || (window.__arrivalHash === "#recovery" ? "recovery" : "");
-  if (arrival.get("error_description")) msg(M, arrival.get("error_description").replace(/\+/g, " ") + " Ask for a new link.", "err");
+  if (arrival.get("error_description") || arrival.get("error")) {
+    // an expired or already-used invite/reset link: offer a fresh one to the same email
+    const why = (arrival.get("error_code") === "otp_expired") ? "That link has expired (links live for one hour)." : "That link is no longer valid.";
+    msg(M, why + " Enter your email below and we will send a new one.", "err");
+    $("#forgot-step h1").textContent = "Send me a new link";
+    $("#forgot-step p").textContent = "A fresh link will be emailed to you. It opens here, sets your password, then asks for your authenticator app.";
+    setTimeout(() => { show("forgot-step"); $("#femail").focus(); }, 0);
+  }
   let needPassword = arrivalType === "invite" || arrivalType === "recovery" || arrivalType === "magiclink";
   let enrolFactorId = null;
 
@@ -144,7 +151,8 @@ main{max-width:26rem;margin:3rem auto}
   $("#f-forgot").addEventListener("submit", async (e) => {
     e.preventDefault();
     const { error } = await sb.auth.resetPasswordForEmail($("#femail").value.trim(), { redirectTo: "https://agentsbackoffice.com/login/" });
-    msg(M, error ? error.message : "If that address has an account, a reset link is on its way.", error ? "err" : "ok");
+    msg(M, error ? (/security purposes/.test(error.message) ? "A link was sent less than a minute ago. Check your email, then try again if it has not arrived." : error.message)
+                 : "If that address has an account, a new link is on its way. It is good for one hour.", error ? "err" : "ok");
     if (!error) show("signin");
   });
   $("#f-setpw").addEventListener("submit", async (e) => {

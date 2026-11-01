@@ -108,18 +108,19 @@
     main.innerHTML = `
       <div class="item"><h1>Clients</h1><div class="actions" style="margin:0"><button class="btn ghost small" id="add">Add a client</button><button class="btn ghost small" id="import">Import CSV</button><button class="btn small" id="export">Export CSV</button></div></div>
       <div id="importbox" class="card hidden"><h3 style="margin-top:0">Import clients from a CSV</h3>
-        <p class="small muted">Download the blank template, fill one row per person, then choose the file. Columns: Name (required), Role (buyer, seller, tenant, landlord, other), Phone, Email, Notes. Rows whose name and email or phone already match one of your clients are skipped.</p>
+        <p class="small muted">Download the blank template, fill one row per person, then choose the file. Columns: Name (required), Role (buyer, seller, tenant, landlord, other), Phone, Email, Address, Notes. A row that matches one of your clients by name, email or phone updates that client with what changed; an identical row is dropped; every change is kept in the history.</p>
         <div class="actions"><button class="btn ghost small" type="button" id="template">Download the blank template</button><input type="file" id="csvfile" accept=".csv,text/csv" style="flex:1 1 14rem"><button class="btn small" type="button" id="doimport" disabled>Import</button></div>
         <div id="importpreview" class="small muted"></div></div>
       <div class="tabs">${Object.entries(labels).map(([k, v]) => `<button data-f="${k}" class="${filter === k ? "on" : ""}">${v}</button>`).join("")}</div>
       <div id="addform" class="card hidden"><h3 style="margin-top:0">New client</h3><form id="f-add"><div class="row">
         <div><label>Name</label><input name="full_name" required></div><div><label>Role</label><select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
         <div class="row"><div><label>Phone</label><input name="phone" type="tel"></div><div><label>Email</label><input name="email" type="email"></div></div>
+        <label>Address</label><input name="address">
         <label>Notes</label><textarea name="notes"></textarea><div class="actions"><button class="btn" type="submit">Save</button></div></form></div>
       <div id="exportbox" class="card hidden"><h3 style="margin-top:0">Confirm the export</h3><p class="muted small">Exporting your client list needs a fresh code from your authenticator app. The export is recorded and we will confirm it by email${me.sms_opt_in && me.phone ? " and text" : ""}.</p>
         <form id="f-export"><label>Six-digit code</label><input id="xcode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn" type="submit">Download ${rows.length} row${rows.length === 1 ? "" : "s"}</button><button class="btn ghost" type="button" id="xcancel">Cancel</button></div></form></div>
-      ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Transactions</th></tr></thead><tbody>
-        ${rows.map(c => `<tr><td>${esc(c.full_name)}</td><td>${esc(ROLES[c.role] || "")}</td><td>${esc(c.phone || "")}</td><td>${esc(c.email || "")}</td><td class="small">${(byClient[c.id] || []).filter(Boolean).map(t => `<a href="#t/${t.id}">${esc(t.property_label || "transaction")}</a>`).join(", ")}</td></tr>`).join("")}</tbody></table></div>`
+      ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Address</th><th>Transactions</th></tr></thead><tbody>
+        ${rows.map(c => `<tr><td>${esc(c.full_name)}</td><td>${esc(ROLES[c.role] || "")}</td><td>${esc(c.phone || "")}</td><td>${esc(c.email || "")}</td><td class="small">${esc(c.address || "")}</td><td class="small">${(byClient[c.id] || []).filter(Boolean).map(t => `<a href="#t/${t.id}">${esc(t.property_label || "transaction")}</a>`).join(", ")}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="muted">${filter === "active" ? "No clients in open transactions." : "No clients in this range."} Clients are added from your entries and from the buttons above.</p>`}`;
     $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewClients(b.dataset.f)));
     $("#add").addEventListener("click", () => $("#addform").classList.toggle("hidden"));
@@ -132,33 +133,48 @@
     });
     // ---- CSV import: blank template, parse in the browser, insert under this agent ----
     $("#import").addEventListener("click", () => $("#importbox").classList.toggle("hidden"));
-    $("#template").addEventListener("click", () => download("clients-template.csv", "Name,Role,Phone,Email,Notes\r\n"));
-    let parsed = [];
+    $("#template").addEventListener("click", () => download("clients-template.csv", "Name,Role,Phone,Email,Address,Notes\r\n"));
+    let plan = null;
     $("#csvfile").addEventListener("change", async (e) => {
       const file = e.target.files[0]; if (!file) return;
       const table = parseCsv(await file.text());
       if (!table.length) { $("#importpreview").textContent = "That file is empty."; return; }
       const head = table[0].map(h => h.trim().toLowerCase());
       const col = (n) => head.indexOf(n);
-      if (col("name") < 0) { $("#importpreview").textContent = "The first row must have a Name column (use the template)."; parsed = []; $("#doimport").disabled = true; return; }
+      if (col("name") < 0) { $("#importpreview").textContent = "The first row must have a Name column (use the template)."; plan = null; $("#doimport").disabled = true; return; }
       const roles = Object.keys(ROLES);
-      const key = (n, em, ph) => (n + "|" + (em || "") + "|" + (ph || "")).toLowerCase();
-      const have = new Set(clients.map(c => key(c.full_name, c.email, c.phone)));
+      const norm = (s) => (s || "").trim().toLowerCase();
+      const digits = (s) => (s || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
       const cell = (r, n) => col(n) >= 0 ? (r[col(n)] || "").trim() || null : null;
-      parsed = table.slice(1).filter(r => r.some(v => v && v.trim())).map(r => ({
-        full_name: (r[col("name")] || "").trim(),
-        role: roles.includes((cell(r, "role") || "").toLowerCase()) ? cell(r, "role").toLowerCase() : null,
-        phone: cell(r, "phone"), email: cell(r, "email"), notes: cell(r, "notes"),
-      })).filter(x => x.full_name && !have.has(key(x.full_name, x.email, x.phone)));
-      $("#importpreview").textContent = parsed.length ? `${parsed.length} new client${parsed.length === 1 ? "" : "s"} ready to import (${table.length - 1} rows in the file).` : "Nothing new to import.";
-      $("#doimport").disabled = !parsed.length;
+      const byName = {}, byEmail = {}, byPhone = {};
+      clients.forEach(c => { byName[norm(c.full_name)] = c; if (c.email) byEmail[norm(c.email)] = c; if (digits(c.phone)) byPhone[digits(c.phone)] = c; });
+      plan = { inserts: [], updates: [], same: 0 };
+      for (const r of table.slice(1)) {
+        if (!r.some(v => v && v.trim())) continue;
+        const x = { full_name: (r[col("name")] || "").trim(), role: roles.includes(norm(cell(r, "role"))) ? norm(cell(r, "role")) : null,
+                    phone: cell(r, "phone"), email: cell(r, "email"), address: cell(r, "address"), notes: cell(r, "notes") };
+        if (!x.full_name) continue;
+        const m = byName[norm(x.full_name)] || (x.email && byEmail[norm(x.email)]) || (digits(x.phone) && byPhone[digits(x.phone)]);
+        if (!m) { plan.inserts.push(x); continue; }
+        const upd = {};
+        for (const f of ["role", "phone", "email", "address", "notes"]) if (x[f] && x[f] !== (m[f] || "")) upd[f] = x[f];
+        if (x.full_name !== m.full_name) upd.full_name = x.full_name;   // matched by email or phone under a changed name
+        if (Object.keys(upd).length) plan.updates.push({ id: m.id, upd }); else plan.same++;
+      }
+      const n = plan.inserts.length + plan.updates.length;
+      $("#importpreview").textContent = `${plan.inserts.length} new, ${plan.updates.length} to update, ${plan.same} identical (dropped), from ${table.length - 1} rows.`;
+      $("#doimport").disabled = !n;
     });
     $("#doimport").addEventListener("click", async () => {
-      if (!parsed.length) return; $("#doimport").disabled = true;
-      const { error } = await sb.from("clients").insert(parsed.map(x => ({ ...x, agent_id: uid })));
-      if (error) { msg(M, error.message, "err"); $("#doimport").disabled = false; return; }
-      await audit("import_clients", { rows: parsed.length });
-      msg(M, `Imported ${parsed.length} client${parsed.length === 1 ? "" : "s"}.`, "ok"); viewClients("all");
+      if (!plan) return; $("#doimport").disabled = true;
+      if (plan.inserts.length) {
+        const { error } = await sb.from("clients").insert(plan.inserts.map(x => ({ ...x, agent_id: uid })));
+        if (error) { msg(M, error.message, "err"); $("#doimport").disabled = false; return; }
+      }
+      let updated = 0;
+      for (const u of plan.updates) { const { error } = await sb.from("clients").update(u.upd).eq("id", u.id); if (!error) updated++; else msg(M, error.message, "err"); }
+      await audit("import_clients", { inserted: plan.inserts.length, updated, unchanged: plan.same });
+      msg(M, `Imported: ${plan.inserts.length} new, ${updated} updated, ${plan.same} unchanged.`, "ok"); viewClients("all");
     });
     $("#export").addEventListener("click", () => { $("#exportbox").classList.remove("hidden"); $("#xcode").focus(); });
     $("#xcancel").addEventListener("click", () => $("#exportbox").classList.add("hidden"));
@@ -166,7 +182,7 @@
       e.preventDefault(); msg(M, "");
       try { await reverify($("#xcode").value.trim()); }
       catch (err) { msg(M, "That code did not match. Try the current one.", "err"); $("#xcode").value = ""; return; }
-      const text = csv(rows, [{ key: "full_name", label: "Name" }, { label: "Role", get: r => ROLES[r.role] || "" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" },
+      const text = csv(rows, [{ key: "full_name", label: "Name" }, { label: "Role", get: r => ROLES[r.role] || "" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "address", label: "Address" },
         { label: "Transactions", get: r => (byClient[r.id] || []).filter(Boolean).map(t => t.property_label || "").join("; ") }, { key: "notes", label: "Notes" }]);
       download(`clients-${filter}-${new Date().toISOString().slice(0, 10)}.csv`, text);
       await audit("export_clients", { filter, rows: rows.length });
@@ -196,6 +212,7 @@
     const { data: f } = await sb.auth.mfa.listFactors();
     const totp = (f && f.totp) || [];
     const recent = await load("audit_log", sb.from("audit_log").select("at, action, details").eq("actor", uid).order("at", { ascending: false }).limit(15));
+    const established = totp.length > 0 && (Date.now() - new Date(p.created_at).getTime()) > 7 * 86400000;
     main.innerHTML = `
       <h1>Your profile</h1>
       <form id="f-profile" class="card">
@@ -210,6 +227,9 @@
         <div class="card"><h3 style="margin-top:0">Authenticator app</h3><p class="small muted">${totp.length ? `On since ${fmtDate(totp[0].created_at)}.` : "Not enrolled."}${p.mfa_required === false ? " An administrator has cleared the requirement for this account." : ""}</p>
           ${totp.length ? "" : '<a class="btn ghost small" href="/login/">Set it up</a>'}</div>
         <div class="card"><h3 style="margin-top:0">Sessions</h3><p class="small muted">Sign your account out everywhere. That will include this session.</p><button class="btn ghost small" id="signout-all">Sign out everywhere</button></div>
+        <div class="card"><h3 style="margin-top:0">Email</h3><p class="small muted">Changing your email takes your authenticator code, a confirmation from your current address and one from the new address${p.sms_opt_in && p.phone ? ", and a text to your phone" : ""}. Established accounts only.</p>
+          ${established ? `<form id="f-email"><label>New email</label><input name="new_email" type="email" required><label>Six-digit code</label><input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn ghost small" type="submit">Request the change</button></div></form>`
+                        : '<p class="small muted">Your account is too new for this. Ask us if it is urgent.</p>'}</div>
       </div>
       <h2>Recent activity on your account</h2>
       ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Details</th></tr></thead><tbody>${recent.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(r.action.replace(/_/g, " "))}</td><td class="small muted">${esc(summarize(r.details))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Nothing yet.</p>'}`;
@@ -224,6 +244,17 @@
       msg(M, error ? error.message : "Reset link sent to " + p.email + ".", error ? "err" : "ok");
     });
     $("#signout-all").addEventListener("click", () => ABO.signOut(true));
+    const fe = $("#f-email");
+    if (fe) fe.addEventListener("submit", async (e) => {
+      e.preventDefault(); msg(M, ""); const fd = new FormData(e.target); const newEmail = (fd.get("new_email") || "").trim().toLowerCase();
+      if (newEmail === p.email.toLowerCase()) { msg(M, "That is already your email.", "err"); return; }
+      try { await reverify((fd.get("code") || "").trim()); } catch (err) { msg(M, "That code did not match. Try the current one.", "err"); return; }
+      const { error } = await sb.auth.updateUser({ email: newEmail }, { emailRedirectTo: "https://agentsbackoffice.com/login/" });
+      if (error) { msg(M, error.message, "err"); return; }
+      await audit("email_change_requested", { to: newEmail });
+      try { await ABO.fn("notify", { event: "email_change_requested", new_email: newEmail }); } catch (err) { /* best-effort */ }
+      msg(M, "Confirmation links were sent to " + p.email + " and " + newEmail + ". The change completes when both are confirmed.", "ok");
+    });
   }
   function summarize(d) { if (!d || typeof d !== "object") return ""; const o = { ...d }; delete o.ua; return Object.entries(o).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ").slice(0, 140); }
 

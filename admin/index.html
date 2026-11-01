@@ -97,9 +97,8 @@
     await loadProfiles();
     main.innerHTML = `<h1>Users</h1>
       <form id="f-invite" class="card"><h3 style="margin-top:0">Invite an agent</h3><div class="row">
-        <div><label>Email</label><input name="email" type="email" required></div><div><label>Name</label><input name="full_name"></div>
-        <div><label>Role</label><select name="role"><option value="agent">Agent</option><option value="admin">Admin</option></select></div></div>
-        <div class="actions"><button class="btn" type="submit">Send invite</button><span class="small muted">The invite email comes from no-reply@mail.agentsbackoffice.com and opens the sign-in page to set a password and an authenticator.</span></div></form>
+        <div><label>Email</label><input name="email" type="email" required></div><div><label>Name</label><input name="full_name"></div></div>
+        <div class="actions"><button class="btn" type="submit">Send invite</button><span class="small muted">The invite email comes from no-reply@mail.agentsbackoffice.com and opens the sign-in page to set a password and an authenticator. New accounts always start as agents; grant admin from the list below once they have signed in.</span></div></form>
       <div class="tablewrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Two-factor</th><th>Status</th><th>Joined</th><th></th></tr></thead><tbody>
       ${profiles.map(p => `<tr data-id="${p.id}"><td>${esc(p.full_name || "")}<div class="small muted">${esc(p.brokerage || "")}${p.license_no ? " · " + esc(p.license_no) : ""}</div></td><td>${esc(p.email)}</td>
         <td><select class="ur">${opt({ agent: "Agent", admin: "Admin" }, p.role)}</select></td>

@@ -227,9 +227,9 @@
         <div class="card"><h3 style="margin-top:0">Authenticator app</h3><p class="small muted">${totp.length ? `On since ${fmtDate(totp[0].created_at)}.` : "Not enrolled."}${p.mfa_required === false ? " An administrator has cleared the requirement for this account." : ""}</p>
           ${totp.length ? "" : '<a class="btn ghost small" href="/login/">Set it up</a>'}</div>
         <div class="card"><h3 style="margin-top:0">Sessions</h3><p class="small muted">Sign your account out everywhere. That will include this session.</p><button class="btn ghost small" id="signout-all">Sign out everywhere</button></div>
-        <div class="card"><h3 style="margin-top:0">Email</h3><p class="small muted">Changing your email takes your authenticator code, a confirmation from your current address and one from the new address${p.sms_opt_in && p.phone ? ", and a text to your phone" : ""}. Established accounts only.</p>
+        <div class="card"><h3 style="margin-top:0">Email</h3><p class="small muted">In a modern environment, we take the information you trust us with extremely seriously. Changing your e-mail will require a 2FA authentication code and a confirmation from the new address. Contact us directly if any of those requirements cannot be met.</p>
           ${established ? `<form id="f-email"><label>New email</label><input name="new_email" type="email" required><label>Six-digit code</label><input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required><div class="actions"><button class="btn ghost small" type="submit">Request the change</button></div></form>`
-                        : '<p class="small muted">Your account is too new for this. Ask us if it is urgent.</p>'}</div>
+                        : '<p class="small muted">Accounts must be over a week old to change e-mail addresses. Let us know if you require it sooner.</p>'}</div>
       </div>
       <h2>Recent activity on your account</h2>
       ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Details</th></tr></thead><tbody>${recent.map(r => `<tr><td>${fmtWhen(r.at)}</td><td>${esc(r.action.replace(/_/g, " "))}</td><td class="small muted">${esc(summarize(r.details))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Nothing yet.</p>'}`;
@@ -253,7 +253,7 @@
       if (error) { msg(M, error.message, "err"); return; }
       await audit("email_change_requested", { to: newEmail });
       try { await ABO.fn("notify", { event: "email_change_requested", new_email: newEmail }); } catch (err) { /* best-effort */ }
-      msg(M, "Confirmation links were sent to " + p.email + " and " + newEmail + ". The change completes when both are confirmed.", "ok");
+      msg(M, "A confirmation link was sent to " + newEmail + ". The change completes once it is confirmed.", "ok");
     });
   }
   function summarize(d) { if (!d || typeof d !== "object") return ""; const o = { ...d }; delete o.ua; return Object.entries(o).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ").slice(0, 140); }

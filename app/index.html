@@ -233,7 +233,7 @@
     const mine = await load("feedback", sb.from("feedback").select("*").order("created_at", { ascending: false }).limit(30));
     const name = (id) => { const t = tx.find(x => x.id === id); return t ? (t.property_label || t.property_address || "transaction") : ""; };
     main.innerHTML = `
-      <h1>Feedback</h1><p class="muted">Tell us what works, what does not, or what you wish it did. It lands with us directly.</p>
+      <h1>Feedback</h1><p class="muted">Tell us what works, what does not work, or what work you wish it would do. It lands with us directly.</p>
       <form id="f-fb" class="card"><label>About a transaction (optional)</label><select name="transaction_id"><option value="">General</option>${tx.map(t => `<option value="${t.id}">${esc(t.property_label || t.property_address || "transaction")}</option>`).join("")}</select>
         <label>Your note</label><textarea name="body" required></textarea><div class="actions"><button class="btn" type="submit">Send</button></div></form>
       ${mine.length ? `<h2>Sent</h2><ul class="list">${mine.map(f => `<li><div class="item"><span class="small muted">${fmtWhen(f.created_at)}${f.transaction_id ? " · " + esc(name(f.transaction_id)) : ""}</span>${f.handled_at ? '<span class="tag ok">Seen</span>' : '<span class="tag">Sent</span>'}</div><div>${esc(f.body)}</div></li>`).join("")}</ul>` : ""}`;

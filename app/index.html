@@ -39,7 +39,7 @@
   const M = $("#msg"), main = $("#main");
   $("#signout").addEventListener("click", (e) => { e.preventDefault(); ABO.signOut(false); });
 
-  const PACKET_URL = "https://claude.ai/artifact/AgL8ke7iGH4mZ1SDbK3uLf";   // the Driveway Packet page, until the builder moves inside
+  const PACKET_URL = "/app/packet/";   // the packet builder, inside the portal since 2026-11-09
   const SIDES = { buyer: "Buyer", seller: "Seller", both: "Both sides", landlord: "Landlord", tenant: "Tenant" };
   const ROLES = { buyer: "Buyer", seller: "Seller", tenant: "Tenant", landlord: "Landlord", other: "Other" };
   const FB_CATS = { general: "General", urgent: "Urgent", feature: "Feature Request", bug: "Report a Bug", support: "Questions and Support" };
@@ -55,13 +55,13 @@
     if (mode === "open") q = q.in("status", OPEN_STATUSES);
     const rows = await load("transactions", q);
     main.innerHTML = `
-      <div class="item"><h1>Transactions</h1><a class="btn" href="${PACKET_URL}" target="_blank" rel="noopener">Send a new transaction</a></div>
+      <div class="item"><h1>Transactions</h1><a class="btn" href="${PACKET_URL}">Send a new transaction</a></div>
       <div class="tabs"><button data-m="open" class="${mode === "open" ? "on" : ""}">Open</button><button data-m="all" class="${mode === "all" ? "on" : ""}">All</button></div>
       ${rows.length ? `<ul class="list">${rows.map(t => `
         <li><div class="item"><a class="title" href="#t/${t.id}">${esc(t.property_label || t.property_address || "Untitled transaction")}</a>${tag(t.status)}</div>
         <div class="small muted">${esc(SIDES[t.side] || "")}${t.property_label && t.property_address ? " · " + esc(t.property_address) : ""} · opened ${fmtDate(t.opened_at)}${t.latest_update ? " · " + esc(t.latest_update) : ""}</div></li>`).join("")}</ul>`
         : `<p class="muted">${mode === "open" ? "No open transactions." : "No transactions yet."} When you send a packet it appears here with its status.</p>`}
-      <p class="notice">The packet page still opens in its own tab while the builder moves inside the portal. Your profile details will fill in automatically once it does.</p>`;
+      <p class="notice">A packet starts with your profile already filled in. To change something on a transaction, open it and choose "Add to this transaction": your earlier answers come back, and what you send goes out as the next version.</p>`;
     $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewTransactions(b.dataset.m)));
   }
 
@@ -71,6 +71,8 @@
     const versions = await load("packet_versions", sb.from("packet_versions").select("id,version_no,catalog_version,forms,submitted_at,queue_state,answers").eq("transaction_id", id).order("version_no", { ascending: false }));
     const parties = await load("transaction_clients", sb.from("transaction_clients").select("role, clients(id, full_name, phone, email)").eq("transaction_id", id));
     const dates = Object.entries(t.key_dates || {});
+    const byNo = {}; versions.forEach(v => { byNo[v.version_no] = v; });
+    const vhtml = await Promise.all(versions.map(v => ABO.renderPacket(v.answers, byNo[v.version_no - 1] ? byNo[v.version_no - 1].answers : null, v.version_no - 1)));
     main.innerHTML = `
       <p><a href="#transactions" class="small">← Transactions</a></p>
       <div class="item"><h1>${esc(t.property_label || t.property_address || "Transaction")}</h1>${tag(t.status)}</div>
@@ -80,16 +82,11 @@
         <div class="card"><h3 style="margin-top:0">Key dates</h3>${dates.length ? `<dl class="kv">${dates.map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${esc(fmtDate(v) || v)}</dd>`).join("")}</dl>` : '<p class="muted small">None recorded yet.</p>'}</div>
         <div class="card"><h3 style="margin-top:0">Parties</h3>${parties.length ? `<ul class="list">${parties.map(p => `<li><a href="#clients" class="title">${esc(p.clients.full_name)}</a> <span class="tag">${esc(ROLES[p.role] || "")}</span><div class="small muted">${esc([p.clients.phone, p.clients.email].filter(Boolean).join(" · "))}</div></li>`).join("")}</ul>` : '<p class="muted small">No parties linked yet.</p>'}</div>
       </div>
-      <div class="item"><h2>Packet versions</h2><a class="btn small" href="${PACKET_URL}" target="_blank" rel="noopener">Add to this transaction</a></div>
-      ${versions.length ? versions.map(v => `
+      <div class="item"><h2>Packet versions</h2><a class="btn small" href="${PACKET_URL}?tx=${encodeURIComponent(t.id)}">Add to this transaction</a></div>
+      ${versions.length ? versions.map((v, i) => `
         <details class="card"><summary><strong>Version ${v.version_no}</strong> · ${fmtWhen(v.submitted_at)} · ${esc((v.forms || []).join(", ") || "forms not listed")}${v.catalog_version ? " · catalog " + esc(v.catalog_version) : ""}</summary>
-          ${renderAnswers(v.answers)}</details>`).join("") : '<p class="muted">No packet versions on this transaction yet.</p>'}`;
+          ${vhtml[i]}</details>`).join("") : '<p class="muted">No packet versions on this transaction yet.</p>'}`;
   }
-  function renderAnswers(a) {
-    if (!a || typeof a !== "object" || !Object.keys(a).length) return '<p class="muted small">No answers stored.</p>';
-    return Object.entries(a).map(([form, fields]) => `<h3>${esc(form)}</h3><dl class="kv">${Object.entries(fields && typeof fields === "object" ? fields : { value: fields }).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</dd>`).join("")}</dl>`).join("");
-  }
-
   // ---------------- clients ----------------
   async function viewClients(filter) {
     filter = filter || localStorage.getItem("abo.cl") || "active";

@@ -1,0 +1,802 @@
+<title>Packet · Agents Back Office</title>
+<meta name="robots" content="noindex">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="/assets/abo.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#F4F3EF; --surface:#FFFFFF; --ink:#1F2328; --ink-2:#5B6069; --ink-3:#8A8F98;
+  --line:#D9D5CC; --line-2:#EAE7E0; --accent:#8B2F5C; --accent-ink:#FFFFFF; --accent-soft:#F3E4EC;
+  --ok:#2E7D5B; --ok-soft:#E3F1EA; --warn:#9A6700; --warn-soft:#FFF3D6;
+  --display:"Zilla Slab", Georgia, "Times New Roman", serif;
+  --body:"Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", Consolas, "Courier New", monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#171A1F; --surface:#1F2329; --ink:#E8E6E1; --ink-2:#A9AEB7; --ink-3:#7C818A;
+    --line:#33383F; --line-2:#2A2E35; --accent:#D67AA8; --accent-ink:#1A0A12; --accent-soft:#3A2431;
+    --ok:#5DBB8E; --ok-soft:#1E3A2E; --warn:#E0B24A; --warn-soft:#3A3120;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#171A1F; --surface:#1F2329; --ink:#E8E6E1; --ink-2:#A9AEB7; --ink-3:#7C818A;
+  --line:#33383F; --line-2:#2A2E35; --accent:#D67AA8; --accent-ink:#1A0A12; --accent-soft:#3A2431;
+  --ok:#5DBB8E; --ok-soft:#1E3A2E; --warn:#E0B24A; --warn-soft:#3A3120;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 var(--body);padding-block:0 96px;padding-inline:16px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+.wrap{max-width:680px;margin:0 auto}
+header.top{position:sticky;top:0;z-index:5;background:var(--ground);padding-block:12px 8px;border-bottom:1px solid var(--line);margin-inline:-16px;padding-inline:16px}
+header.top .row{max-width:680px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.01em}
+.brand small{font-family:var(--mono);font-weight:400;font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:.04em}
+.where{font-family:var(--mono);font-size:12px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em}
+.topright{display:flex;align-items:center;gap:10px}
+.ticks{max-width:680px;margin:8px auto 0;display:flex;gap:4px}
+.ticks i{flex:1;height:3px;background:var(--line);border-radius:2px}
+.ticks i.done{background:var(--accent)}
+.ticks i.now{background:var(--accent);opacity:.55}
+
+h1{font-family:var(--display);font-weight:600;font-size:28px;line-height:1.15;margin:24px 0 4px;text-wrap:balance}
+h3.group{font:600 12px/1.3 var(--body);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-2);margin:22px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line-2)}
+p.lede{color:var(--ink-2);margin:0 0 16px;max-width:60ch}
+.meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);display:flex;gap:14px;flex-wrap:wrap;margin:0 0 12px}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.card+.card{margin-top:10px}
+.pick{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:8px}
+.pick input{margin-top:4px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.pick .t{font-weight:600}
+.pick .s{color:var(--ink-2);font-size:14px}
+.pick .tag{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:6px}
+.pick.auto{border-style:dashed}
+.exclusive{display:flex;flex-direction:column;gap:6px}
+
+.field{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line-2)}
+.field:last-child{border-bottom:0}
+.field label,.field .lab{font-size:14px;font-weight:500}
+.field .from{font-family:var(--mono);font-size:11px;color:var(--accent);background:var(--accent-soft);padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:400;white-space:nowrap}
+.field .hint{font-size:13px;color:var(--ink-3)}
+.field .unc{font-family:var(--mono);font-size:10px;color:var(--warn);margin-left:6px}
+.pre{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.pre:last-child{border-bottom:0}
+.pre .k{color:var(--ink-2)}
+.pre .v{font-weight:500;text-align:right;overflow-wrap:anywhere}
+.pre .v.empty{color:var(--ink-3);font-weight:400}
+.pre button{border:0;background:none;color:var(--accent);font-size:13px;padding:0 0 0 8px;white-space:nowrap}
+.linkbtn{border:0;background:none;color:var(--accent);font-size:13px;padding:0}
+.in{display:flex;align-items:center;gap:6px}
+.in .unit{font-family:var(--mono);color:var(--ink-3);font-size:14px;min-width:1ch}
+input[type=text],input[type=date],input[type=email],input[type=tel],textarea,select{
+  width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+textarea{min-height:76px;resize:vertical}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg label{border:1px solid var(--line);border-radius:999px;padding:7px 14px;background:var(--surface);font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px}
+.seg input{position:absolute;opacity:0;width:0;height:0}
+.seg label.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.toggle{display:flex;gap:10px;align-items:center}
+.toggle input{width:18px;height:18px;accent-color:var(--accent)}
+.party{border:1px solid var(--line-2);border-radius:var(--r);padding:8px 12px;margin-top:8px;display:grid;grid-template-columns:1fr;gap:6px}
+.party .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media (max-width:420px){.party .row2{grid-template-columns:1fr}}
+.party .rm{justify-self:end;border:0;background:none;color:var(--ink-3);font-size:13px;padding:0}
+
+details.sec{margin:0 0 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+details.sec summary{padding:9px 14px;font-weight:500;font-size:13px;color:var(--ink-2);list-style:none;display:flex;align-items:center;gap:10px}
+details.sec summary::-webkit-details-marker{display:none}
+details.sec summary .arrow{display:inline-block;transition:transform .15s;color:var(--accent)}
+details.sec[open] summary .arrow{transform:rotate(90deg)}
+details.sec .text{padding:0 16px 14px;font-size:14px;line-height:1.55;max-height:60vh;overflow:auto;border-top:1px solid var(--line-2)}
+.text h1,.text h2,.text h3{font-family:var(--display);font-size:16px;margin:16px 0 6px}
+.text blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--line);color:var(--ink-2);font-size:13px}
+.text pre{font:12px/1.4 var(--mono);white-space:pre;overflow-x:auto;background:var(--ground);padding:8px;border-radius:4px}
+.text p{margin:8px 0}
+.text ul{margin:6px 0 8px 22px;padding:0}
+.text li{margin:2px 0}
+.hide-done #main .done, .hide-done #main details.grp.full{display:none}
+.text mark{background:var(--accent-soft);color:inherit;padding:0 2px;border-radius:2px}
+
+.pill{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500}
+.pill.accent{border-color:var(--accent);color:var(--accent)}
+.pill.quiet{border-color:transparent;color:var(--ink-3)}
+.note{background:var(--warn-soft);border:1px solid transparent;border-radius:var(--r);padding:10px 12px;font-size:14px;color:var(--ink)}
+.status{font-size:14px;color:var(--ink-2);margin-top:8px;min-height:1.3em}
+
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px;z-index:6}
+nav.bottom .row{max-width:680px;margin:0 auto;display:flex;gap:8px;align-items:center}
+nav.bottom .spacer{flex:1}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:11px 16px;font-weight:600;font-size:15px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.quiet{border-color:transparent;color:var(--ink-2)}
+.btn:disabled{opacity:.45;cursor:default}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+
+.review .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.review .row:last-child{border-bottom:0}
+.review .n{font-family:var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums}
+textarea.payload{font:12px/1.4 var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-height:160px;max-height:40vh}
+.small{font-size:13px;color:var(--ink-3)}
+.hidden{display:none!important}
+
+/* v3: wording IDs, per-field legal wording, folding sections */
+.idtag{display:none;font:500 10px/1.4 var(--mono);color:var(--warn);background:var(--warn-soft);border-radius:3px;padding:1px 5px;margin-left:6px;vertical-align:middle;user-select:all;white-space:nowrap;letter-spacing:0;text-transform:none}
+body.ids .idtag{display:inline-block}
+.pill.on{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.labrow{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.labrow > :first-child{flex:1;min-width:0}
+.lw{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--accent);border-radius:999px;font:600 12px/1 var(--mono);width:26px;height:22px;padding:0}
+.lw[aria-expanded="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.legal{margin-top:4px;padding:8px 12px;border-left:3px solid var(--accent);background:var(--ground);border-radius:0 var(--r) var(--r) 0;font-size:13px;line-height:1.55;color:var(--ink-2)}
+.legal p{margin:0 0 6px}
+.legal p:last-child{margin-bottom:0}
+.legal mark.here{background:var(--accent);color:var(--accent-ink);border-radius:3px;padding:0 6px}
+.legal .cap{font:500 11px/1.3 var(--mono);color:var(--ink-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em}
+.pre .lw{margin-left:8px}
+details.grp{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-top:8px}
+details.grp > summary{list-style:none;display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer}
+details.grp > summary::-webkit-details-marker{display:none}
+details.grp > summary .gt{flex:1;font-weight:600;font-size:14px}
+details.grp > summary .cnt{font:500 12px/1 var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums}
+details.grp > summary .cnt.full{color:var(--ok)}
+details.grp > summary .arrow{color:var(--accent);transition:transform .15s}
+details.grp[open] > summary .arrow{transform:rotate(90deg)}
+details.grp > .body{padding:0 14px 10px;border-top:1px solid var(--line-2)}
+details.grp details.sec{margin:10px 0 0}
+.pick .more{flex:none;margin-left:auto;border:0;background:none;color:var(--accent);font-size:14px;padding:2px 4px;align-self:flex-start}
+.pick .more[aria-expanded="true"]{transform:rotate(90deg)}
+.pick .ex{margin-top:6px}
+.pick .ex .text{max-height:50vh;overflow:auto;font-size:13px;line-height:1.55;border-top:1px solid var(--line-2);margin-top:6px;padding-top:4px}
+.pick > div{flex:1;min-width:0}
+</style>
+
+<header class="top">
+  <div class="row">
+    <div class="brand"><span id="brand">Driveway Packet</span> <small id="ver"></small></div>
+    <div class="topright"><span class="where" id="where">Loading</span><button class="pill quiet" id="hide" title="Hide completed">Hide completed</button><button class="pill quiet" id="ids" title="Show wording IDs">IDs</button><button class="pill quiet" id="reset" title="Clear everything and start a new client">Reset</button></div>
+  </div>
+  <div class="ticks" id="ticks"></div>
+</header>
+
+<main class="wrap" id="main">
+  <h1>Loading the form catalog</h1>
+  <p class="lede">One moment.</p>
+</main>
+
+<nav class="bottom">
+  <div class="row">
+    <button class="btn quiet" id="back">Back</button>
+    <button class="pill accent" id="addform">+ Add a form</button>
+    <span class="spacer"></span>
+    <button class="btn primary" id="next">Next</button>
+  </div>
+</nav>
+
+<script>
+/* Configuration the business sets once. */
+const RECIPIENT_EMAIL = "stephenzygielrealtor@gmail.com"; // only fills the wording's {email}; this page emails nothing
+const BUSINESS = "Agents Back Office";
+const TX = new URLSearchParams(location.search).get("tx") || null;   // editing an existing transaction: its id
+const DRAFT_KEY = TX ? "driveway-packet-draft-v2:tx:" + TX : "driveway-packet-draft-v2";
+let SESSION = null;    // the signed-in agent (ABO.sessionState): session + profile
+let TXROW = null;      // the transaction being edited (TX mode)
+let BASE_VERSION = 0;  // the newest version already on that transaction
+// Page wording added by the portal build; P- ids show in ID mode like the U- ids and join the wording sheet.
+const LOCAL_COPY = {
+  "P-01": "Send to Agents Back Office",
+  "P-02": "Sending…",
+  "P-03": "Sent. Opening the transaction…",
+  "P-04": "Tap again to update your profile",
+  "P-05": "Update my profile too",
+  "P-06": "Email is your sign-in address; it changes on the Profile page, not here.",
+  "P-07": "We have it the moment you tap Send. It appears under Transactions with its status, and we email you when it moves.",
+  "P-08": "Editing",
+  "P-09": "changes go out as version",
+  "P-10": "Back to the transaction",
+  "P-12": "Your {fields} here {differ} from your profile. This packet uses what is typed here.",
+  "P-13": "Could not send:",
+  "P-14": "Transaction not found",
+  "P-15": "Back to the portal"
+};
+const IDS_KEY = "driveway-packet-ids";
+
+let CAT = null;            // catalog.json, from the private Storage bucket (ABO.catText)
+let S = freshState();      // working state
+const TEXT = {};           // verbatim text cache
+const CTX = {};            // per-field legal wording cache
+const SECTIONS = {};       // parsed sections per form
+const OPEN_LW = new Set(); // open wording panels (formId|fieldId), kept across re-renders
+const OPEN_GRP = {};       // open folding sections per page
+let DOWNLOADS = undefined; // downloads capability: undefined = not resolved yet, null = unavailable
+let IDMODE = false;
+
+function freshState(){
+  return { packet:null, agent:{name:"",license:"",phone:"",email:"",side:""}, shared:{}, parties:{buyers:[],sellers:[],tenants:[],landlords:[]}, selected:[], values:{}, editing:{}, step:0, createdAt:new Date().toISOString() };
+}
+function loadDraft(){ try{ const d=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null"); if(d && d.packet!==undefined) return d; }catch(e){} return null; }
+function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(S)); }catch(e){} }
+function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (tag, attrs={}, ...kids)=>{ const e=document.createElement(tag); for(const [k,v] of Object.entries(attrs)){ if(k==="class") e.className=v; else if(k==="html") e.innerHTML=v; else if(k.startsWith("on")) e.addEventListener(k.slice(2),v); else if(v!==null&&v!==undefined) e.setAttribute(k,v);} for(const k of kids.flat()){ if(k==null) continue; e.append(k.nodeType?k:document.createTextNode(String(k))); } return e; };
+
+/* ---------- wording and its IDs ---------- */
+// Page wording lives in catalog/copy.json (CAT.copy); every visible string carries an ID tag shown in ID mode.
+function T(id){ let s=CAT&&CAT.copy?CAT.copy[id]:undefined; if(s==null) s=id; return s.replace(/\{email\}/g,RECIPIENT_EMAIL).replace(/\{business\}/g,BUSINESS); }
+const ID = id => id ? el("span",{class:"idtag"}, id) : null;
+const W = id => [T(id), ID(id)];
+const PH = id => IDMODE ? `[${id}] ${T(id)}` : T(id);       // placeholders cannot hold a tag
+function setIdMode(on){ IDMODE=!!on; document.body.classList.toggle("ids",IDMODE); $("#ids").classList.toggle("on",IDMODE); try{ localStorage.setItem(IDS_KEY, IDMODE?"1":""); }catch(e){} }
+// Hide completed: filled fields and finished groups leave the screen so the unfinished ones can be scanned; a field keeps its place until the next render
+const HIDE_KEY = "driveway-packet-hide"; let HIDE = false;
+function setHide(on){ HIDE=!!on; document.body.classList.toggle("hide-done",HIDE); $("#hide").classList.toggle("on",HIDE); try{ localStorage.setItem(HIDE_KEY, HIDE?"1":""); }catch(e){} }
+function doneClass(filled){ return filled && stepKind(S.step)!=="pick" ? " done" : ""; }
+function fillBtn(b, id){ b.replaceChildren(...W(id)); }
+// two-tap confirmation (the viewer has no confirm dialog)
+function armConfirm(btn, armedId, action){
+  if(btn.dataset.armed){ delete btn.dataset.armed; clearTimeout(btn._t); action(); return; }
+  btn._orig=[...btn.childNodes]; btn.dataset.armed="1"; btn.replaceChildren(...W(armedId));
+  btn._t=setTimeout(()=>{ delete btn.dataset.armed; btn.replaceChildren(...btn._orig); },4000);
+}
+
+/* ---------- catalog helpers ---------- */
+const form = id => CAT.forms[id];
+const pk = () => CAT.packets[S.packet];
+const ACR = new Set(["FHA","VA","USDA","RPCD","HOA","TRR","LLC","ID","OREC","PMI","HUD","EPA","MLS","US","U.S."]);
+const SMALL = new Set(["of","and","to","the","or","for","a","an","in","on","with","by","at","not","as","from"]);
+function tc(s){ if(!s || s!==s.toUpperCase()) return s; return s.toLowerCase().split(/(\s+|—|-|\/)/).map((w,i)=>{ const u=w.toUpperCase(); if(ACR.has(u)) return u; if(!/^[a-z]/.test(w)) return w; if(i>0 && SMALL.has(w)) return w; return w[0].toUpperCase()+w.slice(1); }).join(""); }
+const fcode = fm => fm.code || fm.formId;
+function packetForms(){ const p=pk(); if(!p) return []; const order=[...(p.core||[]), ...Object.values(p.financingByType||{}).filter(Boolean), ...(p.rpcdExclusive||[]), ...(p.leadPaintWhenPre1978||[]), ...(p.companions||[]), ...(p.usual||[]), ...(p.optional||[])]; return [...new Set(order)].filter(id=>form(id)); }
+function financingForm(){ const p=pk(); const t=S.shared["contract.financingType"]; return p&&p.financingByType? (p.financingByType[t]||null):null; }
+function leadForms(){ const p=pk(); const v=S.shared["property.yearBuiltPre1978"]; return (p&&(v==="Yes"||v==="Unknown"))? (p.leadPaintWhenPre1978||[]):[]; }
+function defaultSelection(){ const p=pk(); if(!p) return []; const ids=[...(p.core||[]), ...(p.companions||[]), ...(p.usual||[])]; const f=financingForm(); if(f) ids.push(f); ids.push(...leadForms()); return [...new Set(ids)]; }
+function applyDrivers(){ const p=pk(); if(!p) return; const allFin=Object.values(p.financingByType||{}).filter(Boolean); const f=financingForm(); S.selected=S.selected.filter(id=>!allFin.includes(id) || id===f); if(f && !S.selected.includes(f)) S.selected.splice(Math.min(1,S.selected.length),0,f); const lead=p.leadPaintWhenPre1978||[]; const want=leadForms(); S.selected=S.selected.filter(id=>!lead.includes(id) || want.includes(id)); for(const id of want) if(!S.selected.includes(id)) S.selected.push(id); }
+let _defs=null; function sharedDefs(){ if(_defs) return _defs; _defs={}; for(const g of CAT.shared) for(const f of g.fields) _defs[f.key]=f; return _defs; }
+function partyJoin(list, prop){ return (S.parties[list]||[]).map(p=>(p[prop]||"").trim()).filter(Boolean).join(prop==="name"?", ":" / "); }
+function defaultSide(packet){ const d=profileOf().represents_default; if(packet==="sale") return d==="seller"?"Seller":"Buyer"; return "Landlord"; }
+function agentPrefix(){ const map=(CAT.agentSide||{})[S.packet]||{}; return map[S.agent.side]||null; }
+function sharedValue(key){
+  const v=S.shared[key]; if(v!==undefined && v!=="") return v;
+  const d=sharedDefs()[key]||{};
+  if(d.derived==="address"){ return [S.shared["property.street"], S.shared["property.city"]].map(x=>(x||"").trim()).filter(Boolean).join(", "); }
+  if(d.type==="party-list") return partyJoin(d.party,"name");
+  if(d.derivedFrom){ const [list,prop]=d.derivedFrom.split("."); return partyJoin(list,prop); }
+  if(d.side){ const pre=agentPrefix(); if(pre && key.startsWith(pre+".")){ const part=key.split(".")[1]; const m={licensee:"name",license:"license",phone:"phone",email:"email"}[part]; if(m) return S.agent[m]||""; } }
+  return d.default||"";
+}
+function briefFields(fm){ return fm.fields.filter(f=>f.brief!==false); }
+function lineItems(fm){ const sets=new Set(); let n=0; for(const f of briefFields(fm)){ if(f.columnSet){ sets.add(f.columnSet); } else n++; } return n+sets.size; }
+function signingFields(fm){ return fm.fields.filter(f=>f.brief===false); }
+function prefillOf(f){ // what General Information supplies for this field; undefined when nothing
+  if(f.compose) return f.compose.map(k=>sharedValue(k)).filter(Boolean).join(", ");
+  if(!f.shared) return undefined;
+  if(f.type==="checkbox") return f.sharedValue!==undefined ? (sharedValue(f.shared)===f.sharedValue) : undefined;
+  return sharedValue(f.shared);
+}
+function getVal(fid, f){ const v=(S.values[fid]||{})[f.fieldId]; if(v!==undefined) return v; const p=prefillOf(f); if(p!==undefined) return p; return ""; }
+function setVal(fid, f, v){ (S.values[fid] ||= {}); const p=prefillOf(f); if(p!==undefined && v===p) delete S.values[fid][f.fieldId]; else S.values[fid][f.fieldId]=v; saveDraft(); }
+function isOverridden(fid,f){ return (S.values[fid]||{})[f.fieldId]!==undefined; }
+// financing columns on the cost sheets: one line item is several catalog fields (column CONV/FHA/VA/ASSUMP/CASH);
+// the page shows it once and keeps the amount in the column that matches General Information's Financing
+const FIN_COL={"Conventional":"CONV","FHA":"FHA","VA":"VA","Assumption":"ASSUMP","Cash":"CASH","USDA Rural Housing":"FHA","Native American":"CONV","Seller financing":"CONV"}; // owner 2026-10-30: USDA in the FHA column; Seller financing in CONV; Native American in CONV until the owner confirms
+function activeVariant(fid, variants){
+  const fin=sharedValue("contract.financingType"); const want=FIN_COL[fin];
+  const f=variants.find(v=>v.column===want) || variants[0];
+  const vals=S.values[fid]||{};
+  if(vals[f.fieldId]===undefined){ const other=variants.find(v=>v!==f && vals[v.fieldId]!==undefined); if(other){ vals[f.fieldId]=vals[other.fieldId]; delete vals[other.fieldId]; saveDraft(); } }
+  return {f, fin, placed: want!==undefined && f.column===want};
+}
+function visibleFields(fid, fields){ // one entry per line item; a column set is represented by its active variant
+  const out=[]; const seen={};
+  for(const f of fields){ if(!f.columnSet){ out.push(f); continue; } if(seen[f.columnSet]) continue; seen[f.columnSet]=true; const vs=fields.filter(x=>x.columnSet===f.columnSet); const a=activeVariant(fid, vs); a.f._col=a; out.push(a.f); }
+  return out;
+}
+const isFilled = v => v!=="" && v!==false && v!==null && v!==undefined;
+function filledCount(fid){ const fm=form(fid); let n=0; for(const f of briefFields(fm)){ if(isFilled(getVal(fid,f))) n++; } return n; }
+
+/* ---------- folding sections ---------- */
+// One folding card per section; the page remembers which are open. First visit: the first unfinished one opens.
+function fold(page, key, titleKids, count, total, firstOpen){
+  const open = OPEN_GRP[page] ||= new Set(firstOpen!=null?[firstOpen]:[]);
+  const cnt = total!=null ? el("span",{class:"cnt"+(count===total?" full":"")}, `${count}/${total}`) : null;
+  const det=el("details",{class:"grp"+(total!=null && count===total ? " full" : "")}, el("summary",{}, el("span",{class:"gt"}, ...titleKids), cnt, el("span",{class:"arrow"},"▸")));
+  if(open.has(key)) det.open=true;
+  det.addEventListener("toggle",()=>{ det.open?open.add(key):open.delete(key); });
+  const body=el("div",{class:"body"}); det.append(body);
+  return {det, body};
+}
+
+/* ---------- per-field legal wording ---------- */
+async function loadCtx(fid){ if(CTX[fid]) return CTX[fid]; try{ CTX[fid]=JSON.parse(await ABO.catText("text/"+fid+".ctx.json")); }catch(e){ CTX[fid]={}; } return CTX[fid]; }
+function ctxPara(s){ const p=el("p"); p.innerHTML=inline(s.replace(/^#{1,6}\s+/gm,"").replace(/\n/g," ")).replace(String.fromCharCode(0x27E6,0x27E7),'<mark class="here">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</mark>'); return p; }
+// the § button and its panel: the sentence of the form this field fills, its blank highlighted
+function legalBits(fid, fields){
+  const key=fid+"|"+fields[0].fieldId;
+  const panel=el("div",{class:"legal hidden"});
+  const btn=el("button",{type:"button",class:"lw","aria-expanded":"false","aria-label":T("U-65"),title:T("U-65")},"§");
+  const show=async open=>{
+    btn.setAttribute("aria-expanded",open?"true":"false"); panel.classList.toggle("hidden",!open);
+    if(!open){ OPEN_LW.delete(key); return; }
+    OPEN_LW.add(key);
+    const c=await loadCtx(fid);
+    const seen=new Set(); const texts=[];
+    for(const f of fields){ const t=c[f.fieldId]; if(t && !seen.has(t)){ seen.add(t); texts.push(t); } }
+    panel.replaceChildren(el("div",{class:"cap"}, ...W("U-65")));
+    if(texts.length){ for(const t of texts) for(const para of t.split(/\n\s*\n/)) if(para.trim()) panel.append(ctxPara(para)); panel.append(el("div",{class:"small",style:"margin-top:6px"}, ...W("U-66"))); }
+    else panel.append(el("p",{}, ...W("U-67")));
+  };
+  btn.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); show(panel.classList.contains("hidden")); });
+  if(OPEN_LW.has(key)) show(true);
+  return {btn, panel};
+}
+
+/* ---------- steps ---------- */
+const totalSteps = ()=> 2 + S.selected.length + 1;
+function stepKind(i){ if(i===0) return "pick"; if(i===1) return "header"; if(i<2+S.selected.length) return "form"; return "review"; }
+function go(i){ S.step=Math.max(0,Math.min(totalSteps()-1,i)); saveDraft(); render(); window.scrollTo({top:0}); }
+function where(...kids){ $("#where").replaceChildren(...kids.flat()); }
+
+function render(){
+  const main=$("#main"); main.innerHTML="";
+  const kind=stepKind(S.step);
+  const ticks=$("#ticks"); ticks.innerHTML="";
+  for(let i=0;i<totalSteps();i++){ ticks.append(el("i",{class:i<S.step?"done":(i===S.step?"now":"")})); }
+  $("#ver").textContent=CAT.catalogVersion;
+  const pid=S.packet?(sharedValue("property.identifier")||""):""; $("#brand").replaceChildren(...(pid?[pid]:W("U-01")));
+  fillBtn($("#back"),"U-04"); fillBtn($("#addform"),"U-05"); fillBtn($("#reset"),"U-02"); fillBtn($("#hide"), HIDE?"U-106":"U-105");
+  $("#hide").classList.toggle("hidden", kind==="pick");
+  $("#back").disabled = S.step===0;
+  $("#addform").classList.toggle("hidden", !S.packet || kind==="pick");
+  fillBtn($("#next"), kind==="review" ? "U-08" : (kind==="pick" ? "U-07" : "U-06"));
+  for(const b of [$("#next"),$("#reset")]){ clearTimeout(b._t); delete b.dataset.armed; }
+  $("#next").disabled = kind==="pick" && !S.packet;
+  if(kind==="pick") renderPick(main);
+  else if(kind==="header") renderHeader(main);
+  else if(kind==="form") renderForm(main, S.selected[S.step-2], S.step-1, S.selected.length);
+  else renderReview(main);
+}
+
+/* one form row on the pick list: the § button opens the brief (the -S summary) and then the full form text */
+function pickRow(fm, input, extraKids, locked){
+  const more=el("button",{type:"button",class:"lw","aria-expanded":"false","aria-label":T("U-27"),title:T("U-27")},"§");
+  const ex=el("div",{class:"legal ex hidden",style:"margin:2px 14px 6px 44px"});
+  more.addEventListener("click",async e=>{ e.preventDefault(); e.stopPropagation(); const open=ex.classList.contains("hidden"); more.setAttribute("aria-expanded",open?"true":"false"); ex.classList.toggle("hidden",!open);
+    if(open && !ex.dataset.done){ ex.dataset.done="1";
+      if(fm.summary) ex.append(el("p",{}, el("strong",{}, ...W("U-100"), ": "), fm.summary, ID(fcode(fm)+"-S")));
+      ex.append(el("div",{class:"cap",style:"margin-top:8px"}, ...W("U-101")));
+      const text=el("div",{class:"text"},"…"); ex.append(text);
+      text.innerHTML=mdToHtml(await loadText(fm.formId)); } });
+  const row=el("label",{class:"pick"+(locked?" auto":"")}, input,
+    el("div",{}, el("div",{class:"t"}, tc(fm.title), ID(fcode(fm)+"-T"), el("span",{class:"tag"},(fm.edition||"")+" · "+lineItems(fm)+" "+T("U-29"))), extraKids), more);
+  return [row, ex];
+}
+
+function renderPick(main){
+  where(...W("U-95"));
+  main.append(el("h1",{}, ...W("U-10")));
+  main.append(el("p",{class:"lede"}, ...W("U-11")));
+  const seg=el("div",{class:"seg","role":"radiogroup"});
+  for(const [id,p] of Object.entries(CAT.packets)){
+    const lab=el("label",{class:S.packet===id?"on":""}, el("input",{type:"radio",name:"packet",value:id,id:"packet-"+id, onchange:()=>{ S.packet=id; S.selected=defaultSelection(); S.values={}; S.editing={}; if(!S.agent.side) S.agent.side = defaultSide(id); saveDraft(); render(); }}), p.title);
+    if(S.packet===id) lab.querySelector("input").checked=true;
+    seg.append(lab);
+  }
+  main.append(seg);
+  if(!S.packet) return;
+  const defs=sharedDefs();
+  const drivers=[defs["property.yearBuiltPre1978"], S.packet==="sale"?defs["contract.financingType"]:null].filter(Boolean);
+  if(T("U-12")) main.append(el("h3",{class:"group"}, ...W("U-12")));
+  const card=el("div",{class:"card"});
+  for(const d of drivers) card.append(sharedFieldRow(d, ()=>{ applyDrivers(); render(); }));
+  main.append(card);
+
+  const p=pk();
+  const groups=[["U-13", p.core||[], true], ["U-14", Object.values(p.financingByType||{}).filter(Boolean), "fin"], ["U-15", p.rpcdExclusive||[], "rpcd"], ["U-16", [...(p.leadPaintWhenPre1978||[])], "auto"], ["U-17", p.companions||[], false], ["U-18", p.usual||[], false], ["U-19", p.optional||[], false]];
+  for(const [tid, ids, mode] of groups){
+    const list=ids.filter(id=>form(id));
+    if(!list.length) continue;
+    let host=main;
+    if(tid==="U-19"){
+      const nOn=list.filter(id=>S.selected.includes(id)).length;
+      const det=el("details",{class:"sec",style:"margin-top:22px"}, el("summary",{}, el("span",{class:"arrow"},"▸"), T("U-19"), ID("U-19"), ` · ${list.length} `, T("U-20"), ID("U-20"), nOn?[` · ${nOn} `, T("U-28"), ID("U-28")]:null));
+      if(nOn) det.open=true;
+      main.append(det); host=el("div",{style:"padding:0 12px 12px"}); det.append(host);
+    } else if(T(tid)) host.append(el("h3",{class:"group"}, ...W(tid)));
+    if(mode==="rpcd"){
+      const box=el("div",{class:"exclusive"});
+      const cur=list.find(id=>S.selected.includes(id))||"";
+      for(const id of [...list,""]){
+        const fm=id?form(id):null;
+        const input=el("input",{type:"radio",name:"rpcd",id:"rpcd-"+(id||"none"),checked:cur===id?"":null, onchange:()=>{ S.selected=S.selected.filter(x=>!list.includes(x)); if(id) S.selected.push(id); saveDraft(); render(); }});
+        if(fm) box.append(...pickRow(fm, input, null, false));
+        else box.append(el("label",{class:"pick"}, input, el("div",{}, el("div",{class:"t"}, ...W("U-21")))));
+      }
+      host.append(box); continue;
+    }
+    for(const id of list){
+      const fm=form(id);
+      const on=S.selected.includes(id);
+      const locked = mode===true || mode==="fin" || mode==="auto";
+      const input=el("input",{type:"checkbox",id:"sel-"+id,checked:on?"":null,disabled:locked?"":null, onchange:e=>{ if(e.target.checked){ if(!S.selected.includes(id)) S.selected.push(id);} else S.selected=S.selected.filter(x=>x!==id); saveDraft(); render(); }});
+      const nid = mode==="fin" ? (on?"U-22":"U-23") : mode==="auto" ? (on?"U-24":"U-25") : null;
+      const note = nid && T(nid) ? el("div",{class:"small"}, ...W(nid)) : null;
+      host.append(...pickRow(fm, input, note, locked));
+    }
+  }
+  main.append(el("p",{class:"small",style:"margin-top:20px"}, S.selected.length+" ", ...W("U-26")));
+}
+
+function sharedFieldRow(d, onchange){
+  const wrap=el("div",{class:"field"+doneClass(isFilled(sharedValue(d.key)))});
+  const id="sh-"+d.key.replace(/\W/g,"-");
+  wrap.append(el("label",{for:id}, d.label, ID(d.uid)));
+  if(d.type==="choice"){
+    const seg=el("div",{class:"seg",role:"radiogroup","aria-label":d.label});
+    for(const o of d.options){
+      const on=sharedValue(d.key)===o;
+      const lab=el("label",{class:on?"on":""}, el("input",{type:"radio",name:id,id:id+"-"+o.replace(/\W/g,""),checked:on?"":null,onchange:()=>{ S.shared[d.key]=o; saveDraft(); onchange&&onchange(); render(); }}), o);
+      seg.append(lab);
+    }
+    wrap.append(seg);
+  } else if(d.type==="textarea"){
+    wrap.append(el("textarea",{id, oninput:e=>{ S.shared[d.key]=e.target.value; saveDraft(); onchange&&onchange(); }}, sharedValue(d.key)));
+  } else {
+    const inp=el("input",{type:d.type==="date"?"date":"text",id,value:sharedValue(d.key),inputmode:d.type==="money"?"decimal":null, oninput:e=>{ S.shared[d.key]=e.target.value; saveDraft(); onchange&&onchange(); }});
+    if(d.type==="money"){ wrap.append(el("div",{class:"in"}, el("span",{class:"unit"},"$"), inp)); } else wrap.append(inp);
+    if(d.side && !S.shared[d.key] && sharedValue(d.key)) wrap.append(el("div",{class:"hint"}, ...W("U-39")));
+  }
+  if(d.hint) wrap.append(el("div",{class:"hint"}, d.hint, ID(d.uid+"h")));
+  return wrap;
+}
+
+function partyList(d){
+  const list=S.parties[d.party] ||= [];
+  const wrap=el("div",{class:"field"+doneClass(list.some(p=>(p.name||"").trim()))});
+  const singular=d.label.replace(/ \/ Owner$/,"").replace(/s$/,"");
+  wrap.append(el("div",{class:"lab"}, d.label, ID(d.uid)));
+  if(d.hint) wrap.append(el("div",{class:"hint"}, d.hint, ID(d.uid+"h")));
+  if(!list.length) list.push({name:"",phone:"",email:""});
+  list.forEach((p,i)=>{
+    const box=el("div",{class:"party"});
+    const base=`pt-${d.party}-${i}`;
+    box.append(el("input",{type:"text",id:base+"-name",placeholder:(IDMODE?"[U-40] ":"")+singular+" "+T("U-40"),value:p.name||"", oninput:e=>{ p.name=e.target.value; saveDraft(); }}));
+    box.append(el("div",{class:"row2"},
+      el("input",{type:"tel",id:base+"-phone",placeholder:PH("U-41"),value:p.phone||"", oninput:e=>{ p.phone=e.target.value; saveDraft(); }}),
+      el("input",{type:"email",id:base+"-email",placeholder:PH("U-42"),value:p.email||"", oninput:e=>{ p.email=e.target.value; saveDraft(); }})));
+    if(list.length>1) box.append(el("button",{class:"rm",type:"button", onclick:()=>{ list.splice(i,1); saveDraft(); render(); }}, ...W("U-43")));
+    wrap.append(box);
+  });
+  wrap.append(el("div",{}, el("button",{class:"pill accent",type:"button", onclick:()=>{ list.push({name:"",phone:"",email:""}); saveDraft(); render(); }}, T("U-44")+" "+singular.toLowerCase(), ID("U-44"))));
+  return wrap;
+}
+
+function renderHeader(main){
+  where(...W("U-96"));
+  main.append(el("h1",{}, ...W("U-30")));
+  main.append(el("p",{class:"lede"}, ...W("U-31")));
+  const isSale=S.packet==="sale";
+  const agentKeys=["name","license","phone","email"];
+  const you=fold("__gi","you",W("U-32"), agentKeys.filter(k=>(S.agent[k]||"").trim()).length, agentKeys.length, "you");
+  for(const [k,lid,type] of [["name","U-33","text"],["license","U-34","text"],["phone","U-35","tel"],["email","U-36","email"]]){
+    you.body.append(el("div",{class:"field"+doneClass((S.agent[k]||"").trim())}, el("label",{for:"ag-"+k}, ...W(lid)), el("input",{type,id:"ag-"+k,value:S.agent[k]||"",autocomplete:k==="name"?"name":k, oninput:e=>{ S.agent[k]=e.target.value; saveDraft(); }, onchange:()=>render()})));
+  }
+  profileSync(you.body);
+  const sides=Object.keys((CAT.agentSide||{})[S.packet]||{});
+  if(sides.length){
+    const f=el("div",{class:"field"}); f.append(el("div",{class:"lab"}, ...W("U-37")));
+    const seg=el("div",{class:"seg",role:"radiogroup"});
+    for(const s of sides){ const on=S.agent.side===s; seg.append(el("label",{class:on?"on":""}, el("input",{type:"radio",name:"side",id:"side-"+s,checked:on?"":null, onchange:()=>{ S.agent.side=s; saveDraft(); render(); }}), s)); }
+    f.append(seg); if(T("U-38")) f.append(el("div",{class:"hint"}, ...W("U-38")));
+    you.body.append(f);
+  }
+  main.append(you.det);
+  for(const g of CAT.shared){
+    const fields=g.fields.filter(d=>{ if(d.derived||d.derivedFrom) return false; if(d.key==="property.yearBuiltPre1978"||d.key==="contract.financingType") return false; if(d.packets) return d.packets.includes(S.packet); if(d.key.startsWith("contract.")||d.key==="closing.titleCompany") return isSale; if(d.key.startsWith("lease.")) return !isSale; return true; });
+    if(!fields.length) continue;
+    const n=fields.filter(d=> d.type==="party-list" ? (S.parties[d.party]||[]).some(p=>(p.name||"").trim()) : isFilled(S.shared[d.key])).length;
+    const sec=fold("__gi", g.group, [g.group, ID(g.uid)], n, fields.length, null);
+    for(const d of fields) sec.body.append(d.type==="party-list" ? partyList(d) : sharedFieldRow(d, null));
+    main.append(sec.det);
+  }
+}
+
+/* ---------- form step ---------- */
+function renderForm(main, fid, n, N){
+  const fm=form(fid); const code=fcode(fm);
+  where(T("U-50")+` ${n} `+T("U-68")+` ${N}`, ID("U-50"));
+  main.append(el("h1",{}, tc(fm.title), ID(code+"-T")));
+  main.append(el("div",{class:"meta"}, el("span",{},fm.edition?[T("U-51")+" "+fm.edition, ID("U-51")]:""), el("span",{},fm.pages?fm.pages+" "+T("U-69")+(fm.pages===1?"":"s"):""), el("span",{},lineItems(fm)+" "+T("U-29")), el("span",{},signingFields(fm).length+" ", ...W("U-52"))));
+  if(fm.summary) main.append(el("p",{class:"lede"}, fm.summary, ID(code+"-S")));
+  if(!fm.verified) main.append(el("div",{class:"note small"}, ...W("U-53")));
+  const groups=[]; const byG={};
+  for(const f of visibleFields(fid, briefFields(fm))){ if(!byG[f.group]){ byG[f.group]=[]; groups.push(f.group);} byG[f.group].push(f); }
+  loadText(fid).then(()=>{ for(const d of main.querySelectorAll("details.sec[data-group]")){ const sec=sectionFor(fid, d.dataset.group); if(sec){ d.classList.remove("hidden"); d.querySelector(".text").innerHTML=mdToHtml(sec); } } });
+  loadCtx(fid);
+  const firstOpen = groups.find(g=>byG[g].some(f=>!isFilled(getVal(fid,f)))) ?? groups[0];
+  groups.forEach((g,gi)=>{
+    const done=byG[g].filter(f=>isFilled(getVal(fid,f))).length;
+    const sec=fold(fid, g, [g, ID(code+"-G"+(gi+1))], done, byG[g].length, firstOpen);
+    const sets={};
+    for(const f of byG[g]){
+      if(f.options && f.options.set){ const key=f.options.set; if(sets[key]) continue; sets[key]=true; sec.body.append(fieldSet(fid, byG[g].filter(x=>x.options&&x.options.set===key))); continue; }
+      sec.body.append(fieldRow(fid, f));
+    }
+    sec.body.append(el("details",{class:"sec hidden","data-group":g}, el("summary",{}, el("span",{class:"arrow"},"▸"), ...W("U-54")), el("div",{class:"text"})));
+    main.append(sec.det);
+  });
+  if(!groups.length) main.append(el("p",{class:"lede"}, ...W("U-55")));
+  const full=el("details",{class:"sec",style:"margin-top:18px"}, el("summary",{}, el("span",{class:"arrow"},"▸"), ...W("U-56")), el("div",{class:"text"},"…"));
+  full.addEventListener("toggle", async ()=>{ if(full.open) full.querySelector(".text").innerHTML=mdToHtml(await loadText(fid)); });
+  main.append(full);
+  main.append(el("div",{class:"actions"}, el("button",{class:"pill", onclick:()=>{ S.selected=S.selected.filter(x=>x!==fid); delete S.values[fid]; go(Math.min(S.step, totalSteps()-1)); }}, ...W("U-57"))));
+}
+
+function fieldRow(fid, f){
+  const id="f-"+fid+"-"+f.fieldId.replace(/\W/g,"_");
+  const pre=prefillOf(f);
+  const editing=(S.editing[fid]||{})[f.fieldId];
+  const lw=legalBits(fid,[f]);
+  if(pre!==undefined && f.type!=="checkbox" && !isOverridden(fid,f) && !editing){
+    const v=String(pre||"");
+    return el("div",{class:doneClass(isFilled(v)).trim()}, el("div",{class:"pre"}, el("span",{class:"k"}, f.label, ID(f.uid)), el("span",{class:"v"+(v?"":" empty")}, v||[T("U-58"), ID("U-58")], el("button",{type:"button", onclick:()=>{ (S.editing[fid] ||= {})[f.fieldId]=true; render(); }}, ...W("U-59")), lw.btn)), lw.panel);
+  }
+  const wrap=el("div",{class:"field"+doneClass(isFilled(getVal(fid,f)))});
+  const lab=el("label",{for:id}, f.label, ID(f.uid));
+  if(pre!==undefined) lab.append(el("span",{class:"from"}, ...W("U-60")));
+  if(f.uncurated) lab.append(el("span",{class:"unc"},"unreviewed label"));
+  wrap.append(el("div",{class:"labrow"}, lab, lw.btn), lw.panel);
+  const v=getVal(fid,f);
+  // "Update the entire transaction": pushes this form's value into General Information (so every form sharing the key follows), then the split is gone and the link with it
+  const canPush = pre!==undefined && f.shared && !f.compose && f.type!=="checkbox";
+  const upd = canPush ? el("button",{type:"button",class:"linkbtn",style:"margin-left:10px", onclick:()=>{ S.shared[f.shared]=getVal(fid,f); delete (S.values[fid]||{})[f.fieldId]; delete (S.editing[fid]||{})[f.fieldId]; saveDraft(); render(); }}, ...W("U-102")) : null;
+  const sync = ()=>{ if(upd) upd.hidden = !isOverridden(fid,f); }; sync();
+  if(f.type==="checkbox"){
+    wrap.append(el("div",{class:"toggle"}, el("input",{type:"checkbox",id,checked:v===true||v==="Yes"?"":null, onchange:e=>setVal(fid,f,e.target.checked)}), el("span",{class:"small"}, ...W("U-63"))));
+  } else {
+    const long=/legal description|describ|remarks|additional|terms|explain|comment|other/i.test(f.label);
+    if(long) wrap.append(el("textarea",{id, oninput:e=>{ setVal(fid,f,e.target.value); sync(); }}, v));
+    else {
+      const inp=el("input",{type:"text",id,value:v,inputmode:f.unit==="$"||f.unit==="days"||f.unit==="%"?"decimal":null, oninput:e=>{ setVal(fid,f,e.target.value); sync(); }});
+      if(f.unit) wrap.append(el("div",{class:"in"}, el("span",{class:"unit"},f.unit), inp)); else wrap.append(inp);
+    }
+    if(pre!==undefined) wrap.append(el("div",{class:"hint"}, T("U-61")+" ", ID("U-61"), el("button",{type:"button",class:"linkbtn", onclick:()=>{ delete (S.values[fid]||{})[f.fieldId]; delete (S.editing[fid]||{})[f.fieldId]; saveDraft(); render(); }}, ...W("U-62")), upd));
+  }
+  if(f._col && !f._col.placed){ const id=f._col.fin?"U-103":"U-104"; wrap.append(el("div",{class:"hint"}, T(id).replace("{column}", f.column).replace("{financing}", f._col.fin||""), ID(id))); }
+  if(f.hint) wrap.append(el("div",{class:"hint"}, f.hint, ID(f.uid+"h")));
+  return wrap;
+}
+function fieldSet(fid, members){
+  const wrap=el("div",{class:"field"});
+  const lw=legalBits(fid, members);
+  const title = members[0].options.title ? [members[0].options.title, ID(members[0].uid+"c")] : W("U-64");
+  wrap.append(el("div",{class:"labrow"}, el("div",{class:"lab"}, ...title), lw.btn), lw.panel);
+  const seg=el("div",{class:"seg",role:"radiogroup"});
+  const cur=members.find(m=>getVal(fid,m)===true);
+  for(const m of members){
+    const on=cur===m;
+    const id="f-"+fid+"-"+m.fieldId.replace(/\W/g,"_");
+    seg.append(el("label",{class:on?"on":""}, el("input",{type:"radio",name:"set-"+fid+"-"+members[0].options.set,id,checked:on?"":null, onchange:()=>{ for(const x of members) setVal(fid,x,x===m); render(); }}), m.label, ID(m.uid)));
+  }
+  wrap.append(seg);
+  if(members[0].hint) wrap.append(el("div",{class:"hint"}, members[0].hint, ID(members[0].uid+"h")));
+  return wrap;
+}
+
+/* ---------- review & send ---------- */
+function renderReview(main){
+  where(...W("U-97"));
+  main.append(el("h1",{}, ...W("U-70")));
+  main.append(el("p",{class:"lede"}, ...W("U-71")));
+  const r=el("div",{class:"card review"});
+  r.append(el("div",{class:"row"}, el("span",{}, ...W("U-72")), el("span",{},pk().title)));
+  r.append(el("div",{class:"row"}, el("span",{}, ...W("U-73")), el("span",{},sharedValue("property.identifier")||sharedValue("property.mls")||"—")));
+  r.append(el("div",{class:"row"}, el("span",{}, ...W("U-74")), el("span",{},S.agent.name||"—")));
+  for(const id of S.selected){ const fm=form(id); r.append(el("div",{class:"row"}, el("span",{},tc(fm.title)), el("span",{class:"n"},filledCount(id)+" / "+lineItems(fm)))); }
+  main.append(r);
+  const payload=buildPayload();
+  const json=JSON.stringify(payload);
+  const status=el("div",{class:"status"});
+  const say=id=>status.replaceChildren(...W(id));
+  const acts=el("div",{class:"actions"});
+  const sendBtn=el("button",{class:"btn primary", onclick:async()=>{ sendBtn.disabled=true; say("P-02");
+      try{ const r=await sendPacket(payload); say("P-03"); clearDraft(); location.href="/app/#t/"+r.transaction_id; }
+      catch(e){ sendBtn.disabled=false; status.replaceChildren(T("P-13")+" "+((e&&e.message)||String(e))); } }}, ...W("P-01"));
+  acts.append(sendBtn);
+  const ta=el("textarea",{class:"payload",readonly:"",id:"payload"},JSON.stringify(payload,null,1));
+  acts.append(el("button",{class:"btn", onclick:async()=>{ try{ await navigator.clipboard.writeText(json); say("U-89"); }catch(e){ ta.focus(); ta.select(); say("U-90"); } }}, ...W("U-78")));
+  main.append(acts, status);
+  main.append(el("p",{class:"small"}, ...W("P-07")));
+  main.append(el("h3",{class:"group"}, ...W("U-80")));
+  main.append(ta);
+  main.append(el("p",{class:"small"}, ...W("U-81")));
+}
+function buildPayload(){
+  const forms=S.selected.map(id=>{ const fm=form(id); const values={}; for(const f of fm.fields){ if(f.brief===false) continue; const v=getVal(id,f); if(v==="" || v===undefined || v===null || v===false) continue; values[f.fieldId]=v; } return {formId:id, title:fm.title, edition:fm.edition, values}; });
+  const shared={}; for(const g of CAT.shared) for(const d of g.fields){ const v=sharedValue(d.key); if(v!=="" && v!=null) shared[d.key]=v; }
+  const parties={}; for(const [k,list] of Object.entries(S.parties)){ const l=(list||[]).filter(p=>(p.name||p.phone||p.email)); if(l.length) parties[k]=l; }
+  return { kind:"driveway-packet", version:2, catalogVersion:CAT.catalogVersion, packet:S.packet, createdAt:S.createdAt, sentAt:new Date().toISOString(), agent:S.agent, shared, parties, forms };
+}
+function summaryText(p){ return `${BUSINESS} packet · ${pk().title}\nProperty: ${p.shared["property.identifier"]||p.shared["property.mls"]||"—"}\nAgent: ${p.agent.name||"—"} ${p.agent.phone||""}\nForms: ${p.forms.map(f=>tc(f.title)).join("; ")}`; }
+async function deflateB64(str){
+  if(typeof CompressionStream!=="function") return null;
+  try{ const cs=new CompressionStream("deflate-raw"); const w=cs.writable.getWriter(); w.write(new TextEncoder().encode(str)); w.close(); const buf=await new Response(cs.readable).arrayBuffer(); let s=""; const b=new Uint8Array(buf); for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }catch(e){ return null; }
+}
+async function packBody(p, json){ const b64=await deflateB64(json); return summaryText(p)+"\n\n"+(b64 ? "PKT1:"+b64 : json); }
+function mailto(p, body){ const subj=encodeURIComponent(`Packet · ${p.shared["property.identifier"]||p.shared["property.mls"]||pk().title}`); let b=body; if(b.length>7000) b=summaryText(p)+"\n\n(The packet is too large for an email link. Tap Copy on the page and paste it here.)"; return `mailto:${RECIPIENT_EMAIL}?subject=${subj}&body=${encodeURIComponent(b)}`; }
+async function resolveDownloads(){ if(DOWNLOADS!==undefined) return DOWNLOADS; try{ DOWNLOADS = (window.claude && typeof window.claude.use==="function") ? await window.claude.use("downloads") : null; }catch(e){ DOWNLOADS=null; } return DOWNLOADS; }
+
+/* ---------- the signed-in agent and their profile ---------- */
+const PROFILE_MAP = {name:"full_name", license:"license_no", phone:"phone"}; // email is the sign-in address; it changes on the Profile page
+function profileOf(){ return (SESSION && SESSION.profile) || {}; }
+function prefillAgent(){ const p=profileOf(); const m={name:p.full_name, license:p.license_no, phone:p.phone, email:p.email}; for(const k in m){ if(!(S.agent[k]||"").trim() && m[k]) S.agent[k]=m[k]; } }
+function profileDiff(){ const p=profileOf(); const d={}; for(const [k,col] of Object.entries(PROFILE_MAP)){ const v=(S.agent[k]||"").trim(); if(v && v!==(p[col]||"")) d[col]=v; } return d; }
+function profileSync(body){
+  const p=profileOf(); const d=profileDiff(); const keys=Object.keys(d);
+  const emailDiff=(S.agent.email||"").trim() && (S.agent.email||"").trim()!==(p.email||"");
+  if(!keys.length && !emailDiff) return;
+  const wrap=el("div",{class:"hint",style:"margin-top:6px"});
+  if(keys.length){
+    const labels={full_name:"name", license_no:"license number", phone:"phone"};
+    wrap.append(T("P-12").replace("{fields}", keys.map(k=>labels[k]).join(", ")).replace("{differ}", keys.length===1?"differs":"differ")+" ", ID("P-12"));
+    wrap.append(el("button",{type:"button",class:"linkbtn", onclick:e=>armConfirm(e.currentTarget,"P-04",async()=>{
+      const { error } = await ABO.sb.from("profiles").update(d).eq("id", SESSION.session.user.id);
+      if(error){ wrap.append(el("div",{class:"small"}, "Could not update the profile: "+error.message)); return; }
+      Object.assign(SESSION.profile, d); ABO.audit("profile_update", {from:"packet", fields:keys}); render(); })}, ...W("P-05")));
+  }
+  if(emailDiff) wrap.append(el("div",{class:"small"}, ...W("P-06")));
+  body.append(wrap);
+}
+
+/* ---------- send: the transaction, its parties, and a new packet version ---------- */
+const SIDE_COL={Buyer:"buyer", Seller:"seller", Landlord:"landlord", Tenant:"tenant"};
+const PARTY_ROLE={buyers:"buyer", sellers:"seller", tenants:"tenant", landlords:"landlord"};
+function keyDates(shared){ const out={}; const m={"contract.date":"contract", "contract.closingDate":"closing", "lease.startDate":"lease_start", "lease.endDate":"lease_end"}; for(const [k,name] of Object.entries(m)){ if(shared[k]) out[name]=shared[k]; } return out; }
+async function sendPacket(payload){
+  const sb=ABO.sb; const uid=SESSION.session.user.id;
+  const label=payload.shared["property.identifier"]||payload.shared["property.mls"]||null;
+  const address=["property.street","property.city","property.state","property.zip"].map(k=>(payload.shared[k]||"").trim()).filter(Boolean).join(", ")||null;
+  const head={ property_label:label, property_address:address, side:SIDE_COL[payload.agent.side]||null, key_dates:keyDates(payload.shared) };
+  let txId=TX;
+  if(txId){ const { error } = await sb.from("transactions").update(head).eq("id", txId); if(error) throw error; }
+  else { const { data, error } = await sb.from("transactions").insert({ ...head, agent_id:uid }).select("id").single(); if(error) throw error; txId=data.id; }
+  // parties -> the agent's client list (matched by name, else email, else phone; new people are added) -> linked to the transaction
+  const { data: mineData } = await sb.from("clients").select("id, full_name, email, phone"); const mine=mineData||[];
+  const norm=x=>(x||"").trim().toLowerCase();
+  for(const [list, role] of Object.entries(PARTY_ROLE)){
+    for(const p of (payload.parties[list]||[])){
+      const name=(p.name||"").trim(); if(!name) continue;
+      let c=mine.find(c=>norm(c.full_name)===norm(name)) || (norm(p.email) && mine.find(c=>norm(c.email)===norm(p.email))) || (norm(p.phone) && mine.find(c=>norm(c.phone)===norm(p.phone)));
+      if(!c){ const { data, error } = await sb.from("clients").insert({ agent_id:uid, full_name:name, phone:(p.phone||"").trim()||null, email:(p.email||"").trim()||null, role }).select("id, full_name, email, phone").single(); if(error) throw error; c=data; mine.push(c); }
+      const { error } = await sb.from("transaction_clients").upsert({ transaction_id:txId, client_id:c.id, role }, { onConflict:"transaction_id,client_id", ignoreDuplicates:true }); if(error) throw error;
+    }
+  }
+  // the version: content is append-only on the server; a resend is a new version number
+  let vno=null; try{ const { data } = await sb.rpc("next_version_no", { t: txId }); if(typeof data==="number") vno=data; }catch(e){}
+  if(vno==null){ const { data } = await sb.from("packet_versions").select("version_no").eq("transaction_id", txId).order("version_no",{ascending:false}).limit(1); vno=((data&&data[0]&&data[0].version_no)||0)+1; }
+  const forms={}; for(const f of payload.forms) forms[f.formId]={ title:f.title, edition:f.edition, values:f.values };
+  const answers={ kind:payload.kind, version:payload.version, packet:payload.packet, createdAt:payload.createdAt, sentAt:payload.sentAt, agent:payload.agent, shared:payload.shared, parties:payload.parties, forms };
+  const { data: pv, error: e2 } = await sb.from("packet_versions").insert({ transaction_id:txId, agent_id:uid, version_no:vno, catalog_version:payload.catalogVersion, forms:payload.forms.map(f=>tc(f.title)), answers }).select("id").single(); if(e2) throw e2;
+  ABO.audit("packet_sent", { transaction_id:txId, version_no:vno, forms:payload.forms.map(f=>f.formId) }, { type:"packet_version", id:pv.id });
+  try{ await ABO.fn("notify", { event:"packet_received", packet_version_id:pv.id }); }catch(e){ /* the packet is saved; the email is a courtesy */ }
+  return { transaction_id:txId, version_no:vno, id:pv.id };
+}
+
+/* ---------- editing an existing transaction (?tx=<id>): start from its newest version ---------- */
+async function loadTransaction(){
+  const sb=ABO.sb;
+  const { data: t, error } = await sb.from("transactions").select("*").eq("id", TX).maybeSingle();
+  if(error || !t){ $("#main").innerHTML=""; $("#main").append(el("h1",{}, ...W("P-14")), el("p",{class:"lede"}, el("a",{href:"/app/"}, ...W("P-15")))); where("Error"); return false; }
+  TXROW=t;
+  const { data: vs } = await sb.from("packet_versions").select("version_no, answers").eq("transaction_id", TX).order("version_no",{ascending:false}).limit(1);
+  const v=vs&&vs[0]; BASE_VERSION=v?v.version_no:0;
+  S=freshState();
+  const a=v&&v.answers;
+  if(a && a.packet && CAT.packets[a.packet]){
+    S.packet=a.packet; S.agent=Object.assign(S.agent, a.agent||{}); S.shared=Object.assign({}, a.shared||{});
+    S.parties=Object.assign({buyers:[],sellers:[],tenants:[],landlords:[]}, a.parties||{});
+    S.selected=Object.keys(a.forms||{}).filter(id=>CAT.forms[id]);
+    for(const id of S.selected){ S.values[id]=Object.assign({}, (a.forms[id]||{}).values||{}); for(const f of form(id).fields){ const val=S.values[id][f.fieldId]; if(val===undefined) continue; const p=prefillOf(f); if(p!==undefined && val===p) delete S.values[id][f.fieldId]; } }
+    S.step=1;
+  } else { // a transaction the back office opened by hand: seed General Information from its header
+    S.shared["property.identifier"]=t.property_label||""; S.shared["property.street"]=t.property_address||"";
+    const side={buyer:"Buyer", seller:"Seller", landlord:"Landlord", tenant:"Tenant"}[t.side]; if(side) S.agent.side=side;
+  }
+  saveDraft(); return true;
+}
+function txBanner(){
+  if(!TX || !TXROW) return;
+  const n=el("div",{class:"wrap",style:"padding-top:10px;padding-bottom:0"});
+  n.append(el("div",{class:"hint"}, T("P-08")+" "+(TXROW.property_label||TXROW.property_address||"")+" · "+T("P-09")+" "+(BASE_VERSION+1)+" · ", ID("P-08"), ID("P-09"), el("a",{href:"/app/#t/"+TX}, ...W("P-10"))));
+  document.querySelector("header.top").after(n);
+}
+
+/* ---------- add-a-form sheet ---------- */
+function openAdd(){
+  const main=$("#main"); main.innerHTML="";
+  where(...W("U-98"));
+  main.append(el("h1",{}, ...W("U-91")));
+  main.append(el("p",{class:"lede"}, ...W("U-92")));
+  const at=Math.max(0, S.step-2+1);
+  for(const id of packetForms()){ if(S.selected.includes(id)) continue; const fm=form(id);
+    const input=el("input",{type:"checkbox",id:"add-"+id, onchange:e=>{ if(e.target.checked){ S.selected.splice(Math.min(at,S.selected.length),0,id); saveDraft(); } else { S.selected=S.selected.filter(x=>x!==id); saveDraft(); } }});
+    main.append(...pickRow(fm, input, null, false));
+  }
+  main.append(el("div",{class:"actions"}, el("button",{class:"btn primary", onclick:()=>render()}, ...W("U-93"))));
+}
+
+/* ---------- verbatim text & sections ---------- */
+async function loadText(fid){ if(TEXT[fid]) return TEXT[fid]; try{ TEXT[fid]=await ABO.catText("text/"+fid+".md"); }catch(e){ TEXT[fid]="The full text could not be loaded here. The printed form governs."; } return TEXT[fid]; }
+function parseSections(md){
+  const secs=[]; let cur=null;
+  for(const raw of md.split("\n")){
+    const l=raw.replace(/\r$/,"");
+    let h=null, m;
+    if((m=l.match(/^#{1,6}\s+(.+)/))) h=m[1];
+    else if((m=l.match(/^\*\*([^*]{2,120})\*\*\s*$/))) h=m[1];
+    else if((m=l.match(/^\*\*((?:\d+|[A-Z])\.\s[^*]{2,120})\*\*/))) h=m[1];
+    if(h!==null){ cur={title:h.trim(), lines:[l]}; secs.push(cur); continue; }
+    if(cur) cur.lines.push(l);
+  }
+  return secs;
+}
+const norm=s=>s.toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+function sectionFor(fid, group){
+  const md=TEXT[fid]; if(!md) return null;
+  const secs = SECTIONS[fid] ||= parseSections(md);
+  const num=(group.match(/^(\d+)\./)||[])[1];
+  let hit=null;
+  if(num) hit=secs.find(s=>new RegExp("^"+num+"\\.\\s").test(s.title));
+  if(!hit){ const g=norm(group).slice(0,18); if(g.length>=6) hit=secs.find(s=>norm(s.title).startsWith(g)); }
+  return hit ? hit.lines.join("\n") : null;
+}
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function inline(s){ return esc(s).replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/`(.+?)`/g,"<code>$1</code>").replace(/_{4,}/g,"<mark>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</mark>").replace(/\[ \]/g,"☐"); }
+function mdToHtml(md){
+  const out=[]; let para=[]; let table=[]; let list=[];
+  const flush=()=>{ if(para.length){ out.push("<p>"+inline(para.join(" "))+"</p>"); para=[]; } if(table.length){ out.push("<pre>"+esc(table.join("\n"))+"</pre>"); table=[]; } if(list.length){ out.push("<ul>"+list.map(x=>"<li>"+inline(x)+"</li>").join("")+"</ul>"); list=[]; } };
+  for(const raw of md.split("\n")){
+    const l=raw.replace(/\r$/,"");
+    const li=l.match(/^\s*[-*]\s+(.+)/); if(li){ if(para.length){ out.push("<p>"+inline(para.join(" "))+"</p>"); para=[]; } list.push(li[1]); continue; } else if(list.length){ out.push("<ul>"+list.map(x=>"<li>"+inline(x)+"</li>").join("")+"</ul>"); list=[]; }
+    if(/^\s*\|/.test(l)){ if(para.length){ out.push("<p>"+inline(para.join(" "))+"</p>"); para=[]; } table.push(l); continue; } else if(table.length){ out.push("<pre>"+esc(table.join("\n"))+"</pre>"); table=[]; }
+    const h=l.match(/^(#{1,6})\s+(.*)/); if(h){ flush(); out.push(`<h${Math.min(3,h[1].length)}>${inline(h[2])}</h${Math.min(3,h[1].length)}>`); continue; }
+    if(/^>\s?/.test(l)){ flush(); out.push("<blockquote>"+inline(l.replace(/^>\s?/,""))+"</blockquote>"); continue; }
+    if(!l.trim()){ flush(); continue; }
+    para.push(l);
+  }
+  flush(); return out.join("");
+}
+
+/* ---------- boot ---------- */
+$("#back").addEventListener("click",()=>go(S.step-1));
+$("#next").addEventListener("click",e=>{ if(stepKind(S.step)==="review"){ armConfirm(e.currentTarget,"U-09",()=>{ clearDraft(); if(TX){ location.href="/app/packet/"; return; } S=freshState(); go(0); }); return; } go(S.step+1); });
+$("#addform").addEventListener("click",openAdd);
+$("#reset").addEventListener("click",e=>armConfirm(e.currentTarget,"U-03",()=>{ clearDraft(); if(TX){ location.href="/app/packet/"; return; } S=freshState(); prefillAgent(); for(const k in OPEN_GRP) delete OPEN_GRP[k]; OPEN_LW.clear(); go(0); }));
+$("#ids").addEventListener("click",()=>{ setIdMode(!IDMODE); if(CAT) render(); });
+$("#hide").addEventListener("click",()=>{ setHide(!HIDE); if(CAT) render(); });
+
+async function boot(){
+  SESSION = await ABO.requireSession(); if(!SESSION) return;   // not signed in: ABO sends the browser to /login/
+  let saved=""; try{ saved=localStorage.getItem(IDS_KEY)||""; }catch(e){}
+  setIdMode(saved==="1" || /(^|[#&])ids\b/.test(location.hash));
+  try{ CAT=JSON.parse(await ABO.catText("catalog.json")); }
+  catch(e){ $("#main").innerHTML="<h1>The form catalog did not load</h1><p class='lede'>Check the connection and reload.</p>"; $("#where").textContent="Error"; return; }
+  CAT.copy=Object.assign(CAT.copy||{}, LOCAL_COPY);
+  $("#ids").title=T("U-99");
+  let hs=""; try{ hs=localStorage.getItem(HIDE_KEY)||""; }catch(e){} setHide(hs==="1");
+  const d=loadDraft();
+  if(d && d.packet && CAT.packets[d.packet]){ S=Object.assign(freshState(), d); S.parties=Object.assign({buyers:[],sellers:[],tenants:[],landlords:[]}, d.parties||{}); S.editing=d.editing||{}; S.selected=S.selected.filter(id=>CAT.forms[id]); if(TX){ const { data: t } = await ABO.sb.from("transactions").select("*").eq("id", TX).maybeSingle(); TXROW=t; const { data: vs } = await ABO.sb.from("packet_versions").select("version_no").eq("transaction_id", TX).order("version_no",{ascending:false}).limit(1); BASE_VERSION=(vs&&vs[0]&&vs[0].version_no)||0; } }
+  else if(TX){ const ok=await loadTransaction(); if(!ok) return; }
+  prefillAgent();
+  txBanner();
+  render();
+}
+boot();
+</script>

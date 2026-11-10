@@ -21,6 +21,7 @@
       <a href="#users" data-r="users">Users</a>
       <a href="#feedback" data-r="feedback">Feedback</a>
       <a href="#audit" data-r="audit">Audit log</a>
+      <a href="#catalog" data-r="catalog">Catalog</a>
       <a href="/app/">My portal</a>
       <a href="/preview.html">Preview</a>
       <a href="#" id="signout">Sign out</a>
@@ -58,7 +59,7 @@
       <h1>Packet queue</h1>
       <div class="tabs"><button data-s="open" class="${state === "open" ? "on" : ""}">Open</button><button data-s="all" class="${state === "all" ? "on" : ""}">All</button></div>
       ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Received</th><th>Agent</th><th>Transaction</th><th>Version</th><th>Forms</th><th>State</th><th>Notes</th></tr></thead><tbody>
-      ${rows.map(r => `<tr data-id="${r.id}"><td>${fmtWhen(r.submitted_at)}</td><td>${esc(who(r.agent_id))}</td><td>${esc(r.transactions ? (r.transactions.property_label || r.transactions.property_address || "") : "")}<div class="small muted">${esc(STATUS[r.transactions && r.transactions.status] || "")}</div></td><td>v${r.version_no}</td><td class="small">${esc((r.forms || []).join(", "))}</td>
+      ${rows.map(r => `<tr data-id="${r.id}"><td>${fmtWhen(r.submitted_at)}<div><a class="small" href="#packet/${r.id}">View packet</a></div></td><td>${esc(who(r.agent_id))}</td><td>${esc(r.transactions ? (r.transactions.property_label || r.transactions.property_address || "") : "")}<div class="small muted">${esc(STATUS[r.transactions && r.transactions.status] || "")}</div></td><td>v${r.version_no}</td><td class="small">${esc((r.forms || []).join(", "))}</td>
         <td><select class="qs">${opt(QUEUE, r.queue_state)}</select></td><td><textarea class="qn" rows="1">${esc(r.queue_notes || "")}</textarea><button class="btn small qsave" style="margin-top:.3rem">Save</button></td></tr>`).join("")}</tbody></table></div>`
       : '<p class="muted">Nothing in the queue.</p>'}`;
     $$(".tabs button", main).forEach(b => b.addEventListener("click", () => viewQueue(b.dataset.s)));
@@ -70,6 +71,29 @@
       const tr = b.closest("tr"); const { error } = await sb.from("packet_versions").update({ queue_state: $(".qs", tr).value, queue_notes: $(".qn", tr).value || null }).eq("id", tr.dataset.id);
       msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
     }));
+  }
+
+  // ---------------- one packet version: the answers with the catalog's labels, what changed since the version before, the queue controls
+  async function viewPacket(id) {
+    await loadProfiles();
+    const [v] = await load(sb.from("packet_versions").select("*, transactions(id, property_label, property_address, status, side, agent_id)").eq("id", id).limit(1));
+    if (!v) { main.innerHTML = "<p>Not found.</p>"; return; }
+    const [prev] = v.version_no > 1 ? await load(sb.from("packet_versions").select("version_no, answers").eq("transaction_id", v.transaction_id).eq("version_no", v.version_no - 1).limit(1)) : [null];
+    const all = await load(sb.from("packet_versions").select("id, version_no, submitted_at, queue_state").eq("transaction_id", v.transaction_id).order("version_no"));
+    const t = v.transactions || {};
+    const body = await ABO.renderPacket(v.answers, prev ? prev.answers : null, prev ? prev.version_no : null);
+    main.innerHTML = `<p><a href="#queue" class="small">← Packet queue</a></p>
+      <div class="item"><h1>${esc(t.property_label || t.property_address || "Packet")} · version ${v.version_no}</h1><span class="tag">${esc(QUEUE[v.queue_state] || v.queue_state)}</span></div>
+      <p class="muted">${esc(who(v.agent_id))} · received ${fmtWhen(v.submitted_at)} · catalog ${esc(v.catalog_version || "?")} · transaction ${esc(STATUS[t.status] || "")}${t.property_address && t.property_label ? " · " + esc(t.property_address) : ""}</p>
+      <p class="small">Versions: ${all.map(x => x.id === v.id ? `<strong>v${x.version_no}</strong>` : `<a href="#packet/${x.id}">v${x.version_no}</a>`).join(" · ")}</p>
+      <div class="card"><div class="row"><div><label>Queue state</label><select id="pq">${opt(QUEUE, v.queue_state)}</select></div><div style="flex:1"><label>Notes</label><textarea id="pn" rows="2">${esc(v.queue_notes || "")}</textarea></div></div>
+        <div class="actions"><button class="btn small" id="psave">Save</button></div></div>
+      <h2>Forms: ${esc((v.forms || []).join(", ") || "none listed")}</h2>
+      ${body}`;
+    $("#psave").addEventListener("click", async () => {
+      const { error } = await sb.from("packet_versions").update({ queue_state: $("#pq").value, queue_notes: $("#pn").value || null }).eq("id", v.id);
+      msg(M, error ? error.message : "Saved.", error ? "err" : "ok");
+    });
   }
 
   // ---------------- transactions (all agents) ----------------
@@ -180,11 +204,45 @@
     $("#aclear").addEventListener("click", () => { auditFilter = {}; viewAudit(); });
   }
 
+  // ---- the form catalog in the private bucket: what is there, and uploading a rebuilt one (catalog.json + the text folder)
+  const MIME = { json: "application/json", md: "text/markdown", txt: "text/plain" };
+  async function viewCatalog() {
+    const bucket = sb.storage.from("catalog");
+    const [{ data: top, error: e1 }, { data: txt }] = await Promise.all([bucket.list("", { limit: 1000 }), bucket.list("text", { limit: 1000 })]);
+    if (e1) { main.innerHTML = `<p class="err">${esc(e1.message)}</p>`; return; }
+    const files = [...(top || []).filter(f => f.id).map(f => ({ ...f, name: f.name })), ...(txt || []).filter(f => f.id).map(f => ({ ...f, name: "text/" + f.name }))];
+    const size = files.reduce((s, f) => s + ((f.metadata && f.metadata.size) || 0), 0);
+    main.innerHTML = `<h2>Form catalog</h2>
+      <p class="small muted">The packet builder reads these files from a private bucket with the agent's session; nothing here is on the public website. Rebuild the catalog in the transaction-coordination repo, then upload catalog.json and the whole text folder here. Files with the same name are replaced; nothing is removed.</p>
+      <div class="card"><div class="row"><div><label>catalog.json</label><input type="file" id="cat-main" accept=".json,application/json"></div><div><label>text folder (every .md and .ctx.json)</label><input type="file" id="cat-text" multiple accept=".md,.json"></div></div>
+        <div class="actions"><button class="btn small" type="button" id="cat-up">Upload</button><span class="small muted" id="cat-msg"></span></div></div>
+      <p class="small muted">${files.length} file${files.length === 1 ? "" : "s"}, ${(size / 1024).toFixed(0)} KB</p>
+      <div class="tablewrap"><table><thead><tr><th>File</th><th>Size</th><th>Updated</th></tr></thead><tbody>
+      ${files.map(f => `<tr><td class="mono small">${esc(f.name)}</td><td class="small">${(((f.metadata && f.metadata.size) || 0) / 1024).toFixed(1)} KB</td><td class="small">${fmtWhen(f.updated_at)}</td></tr>`).join("")}</tbody></table></div>`;
+    $("#cat-up").addEventListener("click", async () => {
+      const m = $("#cat-msg"); const jobs = [];
+      const main1 = $("#cat-main").files[0]; if (main1) jobs.push(["catalog.json", main1]);
+      for (const f of $("#cat-text").files) if (/\.(md|ctx\.json)$/.test(f.name)) jobs.push(["text/" + f.name, f]);
+      if (!jobs.length) { m.textContent = "Choose catalog.json, the text folder's files, or both."; return; }
+      let done = 0, failed = [];
+      for (const [path, file] of jobs) {
+        const ext = path.split(".").pop();
+        const { error } = await bucket.upload(path, file, { upsert: true, contentType: MIME[ext] || "text/plain", cacheControl: "60" });
+        if (error) failed.push(path + ": " + error.message); else done++;
+        m.textContent = `${done} of ${jobs.length} uploaded…`;
+      }
+      await audit("catalog_uploaded", "storage", "catalog", { files: done, failed });
+      m.textContent = failed.length ? `${done} uploaded, ${failed.length} failed: ${failed.slice(0, 3).join("; ")}` : `${done} file${done === 1 ? "" : "s"} uploaded.`;
+      if (done) setTimeout(viewCatalog, 1200);
+    });
+  }
+
   async function route() {
-    msg(M, ""); const r = location.hash.replace(/^#/, "") || "queue";
+    msg(M, ""); const h = location.hash.replace(/^#/, "") || "queue"; const r = h.split("/")[0];
     $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
     main.innerHTML = '<p class="muted">Loading…</p>';
-    return ({ queue: viewQueue, transactions: viewTransactions, users: viewUsers, feedback: viewFeedback, audit: viewAudit }[r] || viewQueue)();
+    if (r === "packet" && h.split("/")[1]) return viewPacket(h.split("/")[1]);
+    return ({ queue: viewQueue, transactions: viewTransactions, users: viewUsers, feedback: viewFeedback, audit: viewAudit, catalog: viewCatalog }[r] || viewQueue)();
   }
   window.addEventListener("hashchange", route); route();
 })();

@@ -1,0 +1,3 @@
+# the form catalog and the OREC form texts live in the private Supabase bucket "catalog", never on the public site
+app/packet/catalog.json
+app/packet/text/
